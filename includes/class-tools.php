@@ -251,6 +251,16 @@ class Simple_MCP_Tools {
             $positional[] = $t;
         }
         $subcmd = strtolower(implode(' ', $positional));
+
+        // CORE deny (always enforced, cannot be removed via admin): wp-config WRITES.
+        // wp-config is code/config, not content — managed via deploy, never through the MCP.
+        foreach (['config set', 'config delete', 'config edit', 'config create', 'config shuffle-salts'] as $bad) {
+            if (preg_match('/^' . preg_quote($bad, '/') . '(\s|$)/', $subcmd)) {
+                return self::err('Blocked (core): "' . $bad . '" writes wp-config — config is code, managed via deploy, not the MCP.');
+            }
+        }
+
+        // Configurable deny-list
         foreach ((array) Simple_MCP::opt('deny_list', []) as $bad) {
             $bad = strtolower(preg_replace('/\s+/', ' ', trim($bad)));
             if ($bad === '') continue;

@@ -16,7 +16,7 @@ class Simple_MCP {
             'wp_cli_enabled' => true,
             'path'           => 'simple-mcp',
             // Команди, заборонені за замовчуванням (перевіряється початок команди)
-            'deny_list'      => ['db drop', 'db reset', 'db clean', 'db import', 'site empty', 'eval', 'eval-file', 'config edit'],
+            'deny_list'      => ['db drop', 'db reset', 'db clean', 'db import', 'site empty', 'eval', 'eval-file', 'config edit', 'config set', 'config delete'],
             'ip_allowlist'   => [],   // порожньо = дозволені всі IP
             'rate_limit'     => 120,  // запитів за хвилину на IP
             'user_id'        => 0,    // тех-користувач для типізованих інструментів (0 = перший адмін)
