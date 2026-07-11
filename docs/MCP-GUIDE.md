@@ -11,19 +11,20 @@ per fork**, so discover them at runtime (see `describe_site` / `list_block_field
 
 ---
 
-## 0. Scope — content, not code
+## 0. Scope — content first; server ops on request
 
-This MCP is for **content, options, media, taxonomies and translations**. It is **NOT** for
-code.
+Primary job: **content, options, media, taxonomies, translations**.
 
-- ✅ Do: edit page blocks, fill ACF field values, upload media, manage taxonomy terms & CPT
-  items, edit theme options, create/link translations.
-- ❌ Don't: install/activate/update/edit **plugins, themes, or files**; run migrations; edit
-  code via `wp_cli`. Theme & plugin code is deployed **locally → git → CI/CD → server**.
-  Anything you change in code on the server **drifts from git and is wiped on the next deploy**.
-
-If a task really needs a code change, say so — it belongs in the local dev + git workflow,
-not here.
+- ✅ **Content:** edit page blocks, fill ACF values, upload media, manage terms & CPT items,
+  edit theme options, create/link translations.
+- ❌ **Never edit theme/plugin CODE files** (PHP/JS/CSS) here — that's `git → CI/CD`. Only the
+  **theme** is versioned; editing theme/plugin source on the server drifts and gets overwritten.
+- ⚙️ **Server ops** — editing **wp-config directives** and **installing / updating / removing
+  whole plugins or themes** — are legitimate, *environment-specific* changes (config and the
+  plugin set differ between local and prod by design; only the theme is in git). They are
+  **off by default**, gated by the **"Server ops"** toggle. When enabled you may do them via
+  `wp_cli`, but **always confirm DESTRUCTIVE ops** with the user first — deleting ACF or another
+  critical plugin, or changing security/DB config. When disabled, those commands are blocked.
 
 ---
 

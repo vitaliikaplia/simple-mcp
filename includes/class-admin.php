@@ -37,8 +37,9 @@ class Simple_MCP_Admin {
         $in  = wp_unslash($_POST);
         $o   = Simple_MCP::options();
 
-        $o['enabled']        = !empty($in['enabled']);
-        $o['wp_cli_enabled'] = !empty($in['wp_cli_enabled']);
+        $o['enabled']          = !empty($in['enabled']);
+        $o['wp_cli_enabled']   = !empty($in['wp_cli_enabled']);
+        $o['allow_server_ops'] = !empty($in['allow_server_ops']);
         $o['path']           = sanitize_title((string) ($in['path'] ?? 'simple-mcp')) ?: 'simple-mcp';
         $o['rate_limit']     = max(0, intval($in['rate_limit'] ?? 120));
         $o['user_id']        = intval($in['user_id'] ?? 0);
@@ -131,6 +132,11 @@ class Simple_MCP_Admin {
                         <th scope="row"><code>wp_cli</code> (god-mode)</th>
                         <td><label><input type="checkbox" name="wp_cli_enabled" value="1" <?php checked($o['wp_cli_enabled']); ?>> дозволити прямий WP-CLI</label>
                             <p class="description">Вимкни → «typed-only» режим (максимально безпечно, лише типізовані інструменти). Керований RCE — тримай ключ і deny-list у секреті.</p></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Серверні операції</th>
+                        <td><label><input type="checkbox" name="allow_server_ops" value="1" <?php checked(!empty($o['allow_server_ops'])); ?>> дозволити правки <code>wp-config</code> + <code>plugin/theme install/update/delete</code></label>
+                            <p class="description">Дефолт <strong>OFF</strong>. Це <em>середовищні</em> зміни, не контент: конфіг і набір плагінів законно різняться між локалкою й продом (тільки тема у git). Умикай свідомо на сайтах, де реально просиш агента таке робити. Руйнівне (видалення ACF/критичних плагінів, зміна security/DB) агент має <strong>перепитувати</strong>.</p></td>
                     </tr>
                     <tr>
                         <th scope="row">Блоки</th>

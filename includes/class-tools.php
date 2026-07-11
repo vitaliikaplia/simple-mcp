@@ -252,11 +252,17 @@ class Simple_MCP_Tools {
         }
         $subcmd = strtolower(implode(' ', $positional));
 
-        // CORE deny (always enforced, cannot be removed via admin): wp-config WRITES.
-        // wp-config is code/config, not content — managed via deploy, never through the MCP.
-        foreach (['config set', 'config delete', 'config edit', 'config create', 'config shuffle-salts'] as $bad) {
-            if (preg_match('/^' . preg_quote($bad, '/') . '(\s|$)/', $subcmd)) {
-                return self::err('Blocked (core): "' . $bad . '" writes wp-config — config is code, managed via deploy, not the MCP.');
+        // Server ops (wp-config directives + plugin/theme install/update/delete) are environment-
+        // specific changes, not content. Off by default; enable "Server ops" per-site to allow.
+        // The AI must still CONFIRM destructive ones (deleting ACF/critical plugins, security/DB config).
+        if (!Simple_MCP::opt('allow_server_ops', false)) {
+            $ops = ['config set', 'config delete', 'config edit', 'config create', 'config shuffle-salts',
+                    'plugin install', 'plugin update', 'plugin delete',
+                    'theme install', 'theme update', 'theme delete'];
+            foreach ($ops as $bad) {
+                if (preg_match('/^' . preg_quote($bad, '/') . '(\s|$)/', $subcmd)) {
+                    return self::err('Blocked: "' . $bad . '" is a server op (wp-config / plugin / theme lifecycle). Enable "Server ops" in Simple MCP settings to allow it on this site.');
+                }
             }
         }
 

@@ -85,9 +85,10 @@ claude mcp add --transport http simple-mcp https://САЙТ/simple-mcp \
 - Ключ ≥64 символи, у БД лише **SHA-256**, звірка `hash_equals`. Тільки заголовок `Authorization: Bearer`
   (в URL ключ не передаємо — щоб не тік у логи/проксі).
 - **Deny-list** для руйнівних команд (`db drop`, `db reset`, `site empty`, `eval`, …).
-- **Core-блок (незнімний):** запис `wp-config` (`config set/delete/edit/create/shuffle-salts`)
-  заблоковано завжди — конфіг це код, він керується деплоєм, а не MCP. Читання
-  (`config get/list`) дозволене.
+- **Серверні операції** (`wp-config` directives + `plugin/theme install/update/delete`) —
+  за замовчуванням **заблоковані**; вмикаються тумблером «Серверні операції» per-site
+  (конфіг і набір плагінів законно різняться між середовищами — у git лише тема). Читання
+  конфігу (`config get/list`) дозволене завжди. Руйнівне агент має **перепитувати**.
 - **Rate-limit** по IP, опційний **IP-allowlist** (IP/CIDR).
 - **Audit-log** кожного виклику (таблиця `{prefix}simple_mcp_log`, перегляд в адмінці).
 - **Kill-switch**: `define('SIMPLE_MCP_DISABLE', true);` у `wp-config.php`.

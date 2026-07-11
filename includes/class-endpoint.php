@@ -137,8 +137,15 @@ class Simple_MCP_Endpoint {
         $ml      = Simple_MCP::module_on('wploc') ? Simple_MCP::multilingual_system() : null;
         $content = Simple_MCP::module_on('content');
 
+        $server = Simple_MCP::opt('allow_server_ops', false);
+
         $r = [];
-        $r[] = 'Simple MCP manages CONTENT, options, media, taxonomies and translations on this WordPress site — NOT code. Theme & plugin code is deployed via git + CI/CD; do NOT install/activate/edit plugins, themes or files here (server-side code changes drift from git and are overwritten on the next deploy).';
+        $r[] = 'Simple MCP\'s main job is CONTENT (pages/blocks, ACF, media, taxonomies, translations). Theme & plugin CODE (editing PHP/JS/CSS files) is managed via git + CI/CD — never edit theme or plugin files here.';
+        if ($server) {
+            $r[] = 'Server ops ARE ENABLED on this site: you MAY edit wp-config directives and install/update/remove whole plugins or themes via wp_cli (config and the plugin set legitimately differ per environment — only the theme is versioned). ALWAYS confirm DESTRUCTIVE server ops with the user first: deleting ACF or another critical plugin, or changing security/DB config.';
+        } else {
+            $r[] = 'Server ops (wp-config directives, plugin/theme install/update/delete) are DISABLED on this site — those commands are blocked; ask the user to enable "Server ops" in the plugin settings if one is genuinely needed.';
+        }
         if ($blocks) {
             $r[] = 'Page content is ACF-block data stored INLINE in post_content — never hand-write block-delimiter JSON; use block_get / list_block_fields / block_update.';
         }

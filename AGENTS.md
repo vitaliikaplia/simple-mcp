@@ -9,8 +9,10 @@ media, options, taxonomies, translations). Custom non-REST endpoint, Bearer-key 
 auto-updater from GitHub (`vitaliikaplia/simple-mcp`).
 
 ## Scope boundary
-**Content, not code.** Never install/activate/edit plugins, themes or files through this MCP —
-code ships via local dev + git + CI/CD, and server-side code edits drift and get overwritten.
+**Content first.** Never edit theme/plugin **code files** here — code ships via git + CI/CD
+(only the theme is versioned). But **server ops** — wp-config directives and installing/
+updating/removing whole plugins or themes — are legitimate environment-specific changes, gated
+behind the **"Server ops"** toggle (off by default). Confirm destructive ones with the user.
 
 ## The rules that keep pages intact
 1. Page content = **ACF blocks inline in `post_content`**. Never hand-write block JSON — use
