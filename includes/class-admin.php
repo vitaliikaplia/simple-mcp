@@ -13,10 +13,18 @@ class Simple_MCP_Admin {
         add_action('admin_menu', [__CLASS__, 'menu']);
         add_action('admin_post_simple_mcp_save', [__CLASS__, 'handle_save']);
         add_action('admin_post_simple_mcp_genkey', [__CLASS__, 'handle_genkey']);
+        add_filter('plugin_action_links_' . SIMPLE_MCP_BASENAME, [__CLASS__, 'action_links']);
     }
 
     static function menu() {
         add_options_page('Simple MCP', 'Simple MCP', 'manage_options', 'simple-mcp', [__CLASS__, 'render']);
+    }
+
+    /** «Налаштування» біля Деактивувати на сторінці Плагіни. */
+    static function action_links($links) {
+        $settings = '<a href="' . esc_url(admin_url('options-general.php?page=simple-mcp')) . '">' . esc_html__('Налаштування') . '</a>';
+        array_unshift($links, $settings);
+        return $links;
     }
 
     static function handle_genkey() {
