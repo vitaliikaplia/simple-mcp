@@ -47,6 +47,14 @@ class Simple_MCP_Admin {
         $o['deny_list']      = self::lines_to_array((string) ($in['deny_list'] ?? ''));
         $o['ip_allowlist']   = self::lines_to_array((string) ($in['ip_allowlist'] ?? ''));
 
+        // Групи інструментів. wploc: якщо системи багатомовності нема — зберігаємо намір (чекбокс disabled).
+        $ml = Simple_MCP::multilingual_system();
+        $o['modules'] = [
+            'blocks'  => !empty($in['module_blocks']),
+            'wploc'   => $ml ? !empty($in['module_wploc']) : (bool) ($o['modules']['wploc'] ?? true),
+            'content' => !empty($in['module_content']),
+        ];
+
         update_option(Simple_MCP::OPTION, $o);
         wp_safe_redirect(admin_url('options-general.php?page=simple-mcp&saved=1'));
         exit;
@@ -111,16 +119,49 @@ class Simple_MCP_Admin {
                 <?php wp_nonce_field('simple_mcp_save'); ?>
                 <input type="hidden" name="action" value="simple_mcp_save">
 
+                <h2>Модулі інструментів</h2>
+                <p class="description">Вимкнені групи повністю приховані від агента (не потрапляють у <code>tools/list</code> і не викликаються). Опис-інструкції при підключенні теж підлаштовуються.</p>
+                <table class="form-table" role="presentation">
+                    <tr>
+                        <th scope="row">Ядро контенту</th>
+                        <td><label><input type="checkbox" checked disabled> <code>get/update_post</code>, <code>acf_*</code>, <code>upload_*</code></label>
+                            <p class="description">Безпечна база — завжди увімкнено.</p></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><code>wp_cli</code> (god-mode)</th>
+                        <td><label><input type="checkbox" name="wp_cli_enabled" value="1" <?php checked($o['wp_cli_enabled']); ?>> дозволити прямий WP-CLI</label>
+                            <p class="description">Вимкни → «typed-only» режим (максимально безпечно, лише типізовані інструменти). Керований RCE — тримай ключ і deny-list у секреті.</p></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Блоки</th>
+                        <td><label><input type="checkbox" name="module_blocks" value="1" <?php checked(!empty($o['modules']['blocks'])); ?>> <code>block_get/list_block_fields/block_update/insert/move/remove/replace</code></label>
+                            <p class="description">Безпечне редагування ACF-полів усередині Гутенберг-блоків.</p></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Мультимовність</th>
+                        <td>
+                            <?php $ml = Simple_MCP::multilingual_system(); ?>
+                            <?php if ($ml): ?>
+                                <label><input type="checkbox" name="module_wploc" value="1" <?php checked(!empty($o['modules']['wploc'])); ?>> <code>wploc_get_translations / link / create</code></label>
+                                <span style="margin-left:8px;padding:2px 9px;border-radius:10px;background:#e6f4ea;color:#137333;font-weight:600;font-size:12px">● Виявлено: <?php echo esc_html($ml === 'wp-loc' ? 'WP-LOC' : 'WPML'); ?></span>
+                            <?php else: ?>
+                                <label style="color:#999"><input type="checkbox" disabled> <code>wploc_*</code></label>
+                                <span style="margin-left:8px;padding:2px 9px;border-radius:10px;background:#fce8e6;color:#c5221f;font-weight:600;font-size:12px">● Не виявлено</span>
+                                <p class="description">Немає активного плагіна багатомовності (WP-LOC / WPML) — група прихована автоматично.</p>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Контент і дискавері</th>
+                        <td><label><input type="checkbox" name="module_content" value="1" <?php checked(!empty($o['modules']['content'])); ?>> <code>create_post, render_post, safe_delete, describe_site</code></label></td>
+                    </tr>
+                </table>
+
                 <h2>Налаштування</h2>
                 <table class="form-table" role="presentation">
                     <tr>
                         <th scope="row">Увімкнено</th>
                         <td><label><input type="checkbox" name="enabled" value="1" <?php checked($o['enabled']); ?>> сервер MCP активний</label></td>
-                    </tr>
-                    <tr>
-                        <th scope="row">wp_cli passthrough</th>
-                        <td><label><input type="checkbox" name="wp_cli_enabled" value="1" <?php checked($o['wp_cli_enabled']); ?>> дозволити інструмент <code>wp_cli</code></label>
-                            <p class="description">Повний доступ до WP-CLI (керований RCE). Тримай deny-list і ключ у секреті.</p></td>
                     </tr>
                     <tr>
                         <th scope="row">Шлях ендпоінта</th>

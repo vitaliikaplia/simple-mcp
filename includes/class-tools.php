@@ -12,15 +12,36 @@ if (!defined('ABSPATH')) exit;
 
 class Simple_MCP_Tools {
 
-    /** Опис інструментів: name → [description, inputSchema, callback] */
+    /** Full registry = core tools + enabled tool-module defs. Disabled groups are hidden entirely. */
     static function registry() {
+        $reg = self::core_defs();
+        if (!Simple_MCP::module_on('wp_cli')) unset($reg['wp_cli']); // typed-only mode
+
+        $modules = [
+            'Simple_MCP_Tools_Blocks'   => 'blocks',
+            'Simple_MCP_Tools_Wploc'    => 'wploc',
+            'Simple_MCP_Tools_Content'  => 'content',
+            'Simple_MCP_Tools_Describe' => 'content',
+        ];
+        foreach ($modules as $cls => $group) {
+            if (!Simple_MCP::module_on($group)) continue;
+            if ($group === 'wploc' && !Simple_MCP::multilingual_system()) continue; // no wp-loc/WPML → hide
+            if (class_exists($cls) && method_exists($cls, 'defs')) {
+                $reg = array_merge($reg, (array) $cls::defs());
+            }
+        }
+        return $reg;
+    }
+
+    /** Core tools shipped in this file: name → [description, inputSchema, callback] */
+    static function core_defs() {
         return [
             'wp_cli' => [
-                'description' => 'Виконати команду WP-CLI на сервері (без початкового "wp"). Прапорець --path додається автоматично. Приклад: "post list --post_type=page --format=json". Повертає stdout/stderr/exit_code.',
+                'description' => 'Run any WP-CLI command server-side (omit the leading "wp"; --path is added automatically). Returns stdout/stderr/exit_code. Destructive subcommands are deny-listed and shell metacharacters/chaining are blocked. SCOPE: this MCP is for CONTENT, options, media, taxonomies and translations — NOT code. Do NOT install/activate/update/edit plugins, themes, or files here: theme & plugin code is managed locally via git + CI/CD, so server-side code changes drift from git and are overwritten on the next deploy. For content edits prefer the typed tools (block_*, acf_*, wploc_*, create_post, upload_media) over raw wp_cli.',
                 'inputSchema' => [
                     'type'       => 'object',
                     'properties' => [
-                        'command' => ['type' => 'string', 'description' => 'Команда WP-CLI без "wp", напр. "option get blogname" або "post meta get 13 _my_key".'],
+                        'command' => ['type' => 'string', 'description' => 'WP-CLI command without "wp", e.g. "option get blogname" or "post list --post_type=page --format=json".'],
                     ],
                     'required'   => ['command'],
                 ],
@@ -28,7 +49,7 @@ class Simple_MCP_Tools {
             ],
 
             'get_post' => [
-                'description' => 'Отримати пост/сторінку: title, status, type, slug, сирий post_content (блокова розмітка).',
+                'description' => 'Read a post/page: title, status, type, slug, and raw post_content (Gutenberg block markup). To read ACF field VALUES inside blocks use block_get instead (it decodes the inline block data) — get_post returns the raw \\uXXXX-escaped markup.',
                 'inputSchema' => [
                     'type'       => 'object',
                     'properties' => ['id' => ['type' => 'integer']],
@@ -38,12 +59,12 @@ class Simple_MCP_Tools {
             ],
 
             'update_post' => [
-                'description' => 'Оновити пост/сторінку безпечно. content (повна блокова розмітка) зберігається через wp_slash і перевіряється байт-у-байт (content_verified). Так НЕ ламається блоковий JSON.',
+                'description' => 'Update a post safely. content (FULL Gutenberg block markup) is saved with an auto-revision + wp_slash + byte-for-byte verify (content_verified), so it never corrupts block-delimiter \\uXXXX JSON. Use for full-body replacement or title/status. To change ONE ACF field inside a block, prefer block_update (targeted — no need to resend the whole body).',
                 'inputSchema' => [
                     'type'       => 'object',
                     'properties' => [
                         'id'      => ['type' => 'integer'],
-                        'content' => ['type' => 'string', 'description' => 'Повний post_content (Gutenberg-розмітка). Опційно.'],
+                        'content' => ['type' => 'string', 'description' => 'Full post_content (Gutenberg markup). Optional. To edit a single block field use block_update instead.'],
                         'title'   => ['type' => 'string'],
                         'status'  => ['type' => 'string', 'description' => 'publish | draft | pending | private'],
                     ],
@@ -53,12 +74,12 @@ class Simple_MCP_Tools {
             ],
 
             'acf_get' => [
-                'description' => 'Прочитати ACF-поле(я). post_id — число або ACF-селектор ("option", "user_5", "term_10"). Без field повертає всі поля.',
+                'description' => 'Read ACF field value(s) from POST META (also user_/term_/options). post_id is an int or an ACF selector ("option", "options_uk", "user_5", "term_10"). Omit field to get all. NOTE: does NOT read ACF fields embedded in Gutenberg blocks (those live inline in post_content) — use block_get for those.',
                 'inputSchema' => [
                     'type'       => 'object',
                     'properties' => [
                         'post_id' => ['type' => ['integer', 'string']],
-                        'field'   => ['type' => 'string', 'description' => "Ім'я поля або field_key. Опційно."],
+                        'field'   => ['type' => 'string', 'description' => 'Field name or field_key. Optional.'],
                     ],
                     'required'   => ['post_id'],
                 ],
@@ -66,13 +87,13 @@ class Simple_MCP_Tools {
             ],
 
             'acf_update' => [
-                'description' => 'Записати ACF-поле через рідний update_field() (коректно для репітерів/flex/group). field — ім\'я або field_key.',
+                'description' => 'Write an ACF field via native update_field() — correct for repeaters/flex/group. Works for POST fields, user_/term_, and OPTIONS pages (post_id "option", or "options_{wpml_code}" for a per-language value). CANNOT edit ACF fields inside Gutenberg blocks (their data is inline in post_content, not post meta) — use block_update for those. Note: this fills VALUES only; field DEFINITIONS (acf-json) are managed in theme code locally, not here.',
                 'inputSchema' => [
                     'type'       => 'object',
                     'properties' => [
                         'post_id' => ['type' => ['integer', 'string']],
                         'field'   => ['type' => 'string'],
-                        'value'   => ['description' => 'Значення (рядок/число/масив залежно від поля).'],
+                        'value'   => ['description' => 'Value (string/number/array depending on the field type).'],
                     ],
                     'required'   => ['post_id', 'field', 'value'],
                 ],
@@ -80,17 +101,17 @@ class Simple_MCP_Tools {
             ],
 
             'upload_media' => [
-                'description' => 'Залити файл у медіатеку через media_handle_sideload — спрацьовує пайплайн теми (ресайз + webp). Джерело: base64 (поле data) або url. Для великих файлів — upload_begin/chunk/finish.',
+                'description' => 'Upload a file to the media library via media_handle_sideload — this triggers the theme pipeline (resize to max width + .webp generation). source: base64 (data field) or url. For large files (video, hi-res photos) use upload_begin/upload_chunk/upload_finish instead. Returns attachment_id, url and webp_url. For untrusted URLs prefer base64.',
                 'inputSchema' => [
                     'type'       => 'object',
                     'properties' => [
-                        'source'   => ['type' => 'string', 'enum' => ['base64', 'url'], 'description' => 'За замовчуванням base64.'],
-                        'filename' => ['type' => 'string', 'description' => "Ім'я файлу з розширенням, напр. photo.jpg"],
-                        'data'     => ['type' => 'string', 'description' => 'base64-вміст (для source=base64).'],
-                        'url'      => ['type' => 'string', 'description' => 'URL файлу (для source=url).'],
+                        'source'   => ['type' => 'string', 'enum' => ['base64', 'url'], 'description' => 'default base64'],
+                        'filename' => ['type' => 'string', 'description' => 'filename with extension, e.g. photo.jpg'],
+                        'data'     => ['type' => 'string', 'description' => 'base64 content (for source=base64)'],
+                        'url'      => ['type' => 'string', 'description' => 'file URL (for source=url)'],
                         'title'    => ['type' => 'string'],
                         'alt'      => ['type' => 'string'],
-                        'post_id'  => ['type' => 'integer', 'description' => 'Прикріпити до поста (опційно).'],
+                        'post_id'  => ['type' => 'integer', 'description' => 'attach to a post (optional)'],
                     ],
                     'required'   => ['filename'],
                 ],
@@ -98,7 +119,7 @@ class Simple_MCP_Tools {
             ],
 
             'upload_begin' => [
-                'description' => 'Почати частинкове завантаження великого файлу. Повертає upload_id.',
+                'description' => 'Begin a chunked upload of a large file. Returns upload_id. Then send parts with upload_chunk and finish with upload_finish (which runs the theme resize+webp pipeline).',
                 'inputSchema' => [
                     'type'       => 'object',
                     'properties' => ['filename' => ['type' => 'string']],
@@ -108,7 +129,7 @@ class Simple_MCP_Tools {
             ],
 
             'upload_chunk' => [
-                'description' => 'Дописати наступну base64-частину до upload_id.',
+                'description' => 'Append the next base64 chunk to an upload_id (from upload_begin).',
                 'inputSchema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -121,7 +142,7 @@ class Simple_MCP_Tools {
             ],
 
             'upload_finish' => [
-                'description' => 'Завершити частинкове завантаження й залити файл у медіатеку (пайплайн теми спрацює).',
+                'description' => 'Finish a chunked upload and sideload the assembled file into the media library (theme resize+webp pipeline runs). Returns attachment_id, url, webp_url.',
                 'inputSchema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -159,7 +180,7 @@ class Simple_MCP_Tools {
         try {
             $res = call_user_func($reg[$name]['callback'], is_array($args) ? $args : []);
         } catch (\Throwable $e) {
-            $res = self::err('Виняток: ' . $e->getMessage());
+            $res = self::err($e->getMessage());
         }
         Simple_MCP_Audit::log($name, $args, empty($res['isError']) ? 'ok' : 'error');
         return $res;
@@ -175,6 +196,24 @@ class Simple_MCP_Tools {
     }
     static function err($msg) {
         return ['content' => [['type' => 'text', 'text' => (string) $msg]], 'isError' => true];
+    }
+
+    /**
+     * Безпечний запис post_content: авто-ревізія (для відкату) → wp_slash (щоб не побити
+     * блоковий \uXXXX JSON) → byte-for-byte verify. Спільний для update_post і block-toolset.
+     * Повертає true|false (verified) або WP_Error.
+     */
+    static function save_post_content($post_id, $content) {
+        // rollback point BEFORE mutating: a WP revision, or a meta backup if revisions are off
+        if (wp_revisions_enabled(get_post($post_id))) {
+            wp_save_post_revision($post_id);
+        } else {
+            update_post_meta($post_id, '_simple_mcp_backup', get_post($post_id)->post_content);
+        }
+        $r = wp_update_post(['ID' => $post_id, 'post_content' => wp_slash((string) $content)], true);
+        if (is_wp_error($r)) return $r;
+        clean_post_cache($post_id);
+        return get_post($post_id)->post_content === (string) $content;
     }
 
     // ── Інструменти ───────────────────────────────────────────────────────
@@ -296,6 +335,7 @@ class Simple_MCP_Tools {
         if ($has_content) {
             // КЛЮЧОВЕ: wp_slash, бо wp_update_post усередині робить wp_unslash і побив би \uXXXX / блокові делімітери.
             $postarr['post_content'] = wp_slash((string) $args['content']);
+            wp_save_post_revision($id); // знімок ДО правки — вбудований відкат
         }
 
         $r = wp_update_post($postarr, true);

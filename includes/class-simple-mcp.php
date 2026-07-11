@@ -22,6 +22,8 @@ class Simple_MCP {
             'user_id'        => 0,    // тех-користувач для типізованих інструментів (0 = перший адмін)
             'wp_bin'         => '',   // шлях до бінарника wp ('' = автовизначення)
             'php_bin'        => '',   // шлях до CLI-php ('' = автовизначення)
+            // Групи інструментів, які можна вмикати/вимикати (ядро контенту завжди ON)
+            'modules'        => ['blocks' => true, 'wploc' => true, 'content' => true],
         ];
     }
 
@@ -34,6 +36,20 @@ class Simple_MCP {
     static function opt($key, $default = null) {
         $o = self::options();
         return array_key_exists($key, $o) ? $o[$key] : $default;
+    }
+
+    /** Чи увімкнена група інструментів. 'wp_cli' керується власним прапорцем. */
+    static function module_on($key) {
+        if ($key === 'wp_cli') return (bool) self::opt('wp_cli_enabled', true);
+        $mods = self::opt('modules', []);
+        return !is_array($mods) || !array_key_exists($key, $mods) || !empty($mods[$key]);
+    }
+
+    /** Активна система багатомовності: 'wp-loc' | 'wpml' | null. */
+    static function multilingual_system() {
+        if (class_exists('WP_LOC')) return 'wp-loc';
+        if (defined('ICL_SITEPRESS_VERSION') || class_exists('SitePress')) return 'wpml';
+        return null;
     }
 
     static function init() {

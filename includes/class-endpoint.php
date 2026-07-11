@@ -103,6 +103,7 @@ class Simple_MCP_Endpoint {
                     'protocolVersion' => self::PROTOCOL,
                     'capabilities'    => ['tools' => ['listChanged' => false]],
                     'serverInfo'      => ['name' => 'simple-mcp', 'version' => SIMPLE_MCP_VERSION],
+                    'instructions'    => self::instructions(),
                 ]);
 
             case 'notifications/initialized':
@@ -128,6 +129,28 @@ class Simple_MCP_Endpoint {
                 if ($is_notification) return null;
                 return self::error($id, -32601, 'Method not found: ' . $method);
         }
+    }
+
+    /** Shown to the AI client at connect time (MCP `instructions`). Encodes the must-know rules. */
+    static function instructions() {
+        $blocks  = Simple_MCP::module_on('blocks');
+        $ml      = Simple_MCP::module_on('wploc') ? Simple_MCP::multilingual_system() : null;
+        $content = Simple_MCP::module_on('content');
+
+        $r = [];
+        $r[] = 'Simple MCP manages CONTENT, options, media, taxonomies and translations on this WordPress site — NOT code. Theme & plugin code is deployed via git + CI/CD; do NOT install/activate/edit plugins, themes or files here (server-side code changes drift from git and are overwritten on the next deploy).';
+        if ($blocks) {
+            $r[] = 'Page content is ACF-block data stored INLINE in post_content — never hand-write block-delimiter JSON; use block_get / list_block_fields / block_update.';
+        }
+        $r[] = 'acf_update handles POST/user/term/OPTIONS ACF fields' . ($blocks ? ' but NOT fields inside blocks (use block_update for those).' : '.');
+        if ($ml) {
+            $r[] = 'This site is multilingual (' . $ml . '): each language is a SEPARATE post/term ID linked by a trid — resolve the right one with wploc_get_translations before editing.';
+        }
+        if ($content) {
+            $r[] = 'On an unfamiliar site call describe_site first to learn its blocks, fields, options, post types and languages (they differ per site).';
+        }
+        $r[] = 'All content writes auto-create a revision and byte-verify (check content_verified:true). After edits, flush cache (wp_cli "cache flush" plus W3 Total Cache page flush) if a page cache is active. Prefer typed tools over raw wp_cli.';
+        return implode(' ', $r);
     }
 
     static function result($id, $result) {

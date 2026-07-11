@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Simple MCP
- * Description: Приватний MCP-сервер для WordPress: власний ендпоінт поза REST API, автентифікація довгим ключем, повний доступ до WP-CLI (з deny-list) + безпечні інструменти для медіа, Gutenberg-блоків і ACF.
- * Version: 1.0.0
+ * Description: Приватний MCP-сервер для WordPress: власний ендпоінт поза REST API, автентифікація довгим ключем, повний доступ до WP-CLI (з deny-list) + безпечні типізовані інструменти для контенту, Gutenberg-блоків, ACF, медіа та мультимовності.
+ * Version: 1.1.0
  * Author: Vitalii Kaplia
  * Requires PHP: 8.1
  * License: GPL-2.0-or-later
@@ -12,7 +12,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('SIMPLE_MCP_VERSION', '1.0.0');
+define('SIMPLE_MCP_VERSION', '1.1.0');
 define('SIMPLE_MCP_FILE', __FILE__);
 define('SIMPLE_MCP_DIR', plugin_dir_path(__FILE__));
 define('SIMPLE_MCP_URL', plugin_dir_url(__FILE__));
@@ -27,6 +27,11 @@ require_once SIMPLE_MCP_DIR . 'includes/class-tools.php';
 require_once SIMPLE_MCP_DIR . 'includes/class-endpoint.php';
 require_once SIMPLE_MCP_DIR . 'includes/class-admin.php';
 require_once SIMPLE_MCP_DIR . 'includes/class-simple-mcp-github-updater.php';
+
+// Tool modules (each exposes a static defs() merged into the tool registry)
+foreach (glob(SIMPLE_MCP_DIR . 'includes/tools/*.php') as $__tool_module) {
+    require_once $__tool_module;
+}
 
 register_activation_hook(__FILE__, ['Simple_MCP', 'activate']);
 register_deactivation_hook(__FILE__, ['Simple_MCP', 'deactivate']);

@@ -41,17 +41,43 @@ claude mcp add --transport http simple-mcp https://САЙТ/simple-mcp \
 
 ## Інструменти
 
+> 📖 **Повний гайд для агентів:** [docs/MCP-GUIDE.md](docs/MCP-GUIDE.md) — модель контенту,
+> рецепти й пастки (як не зламати блоки, мультимовність, опції). Ключові правила також
+> прокидуються агенту через MCP `instructions` при підключенні.
+
+**Ядро**
 | Інструмент | Призначення |
 |---|---|
-| `wp_cli` | Будь-яка команда WP-CLI (без «wp»). `--path` додається сам. Deny-list на руйнівне. |
-| `get_post` | Прочитати пост/сторінку (сирий блоковий `post_content`). |
-| `update_post` | Оновити безпечно: `wp_slash` + перевірка `content_verified` байт-у-байт. |
-| `acf_get` / `acf_update` | ACF через рідний `get_field`/`update_field` (репітери/flex). |
-| `upload_media` | Залити файл (base64 або url) через `media_handle_sideload` → **тема ресайзить + робить webp**. |
-| `upload_begin` / `upload_chunk` / `upload_finish` | Частинкове завантаження **великих** файлів (відео). |
+| `wp_cli` | Будь-яка команда WP-CLI (без «wp»). Deny-list + блок метасимволів. Тільки контент, **не код**. |
+| `get_post` / `update_post` | Читання / block-safe запис (`wp_slash` + auto-revision + `content_verified`). |
+| `acf_get` / `acf_update` | ACF на **пості/user/term/опціях** (не блокові поля). |
+| `upload_media` · `upload_begin`/`chunk`/`finish` | Медіа через `media_handle_sideload` → **ресайз + webp** (chunked для великих). |
 
-`wp_cli` — універсальний шлюз. Решта — безпечні обгортки для того, що через CLI роблять
-погано: бінарні аплоади, блоковий JSON (щоб не побити `\uXXXX`), складні ACF-поля.
+**Блоки** (ACF-поля всередині Гутенберг-блоків — inline в `post_content`)
+| Інструмент | Призначення |
+|---|---|
+| `block_get` / `list_block_fields` | Читання блоків сторінки / схема полів блоку (з ACF-реєстру). |
+| `block_update` | Безпечна правка ACF-поля(ів) блоку (server-side flattener + field_key mirror + verify). |
+| `block_insert` / `block_move` / `block_remove` / `block_replace` | Структура сторінки з JSON-специфікацій. |
+
+**Мультимовність** (детект wp-loc/WPML)
+| `wploc_get_translations` / `wploc_link_translation` / `wploc_create_translation` | Резолв/лінк/створення перекладів (trid, slug↔wpml_code). |
+
+**Контент і дискавері**
+| `create_post` | Створити пост/сторінку/CPT з block-safe тілом. |
+| `render_post` | Рендер `do_blocks` HTML для верифікації. |
+| `safe_delete` | Translation-aware видалення (не каскадить переклади). |
+| `describe_site` | Схема форку: блоки+поля, ACF-опції, CPT/таксономії, мовна мапа. |
+
+### Модулі (вмик/вимк в адмінці)
+**Налаштування → Simple MCP → Модулі інструментів.** Групи можна вимикати — тоді їхні тули
+повністю приховані від агента (не в `tools/list`, не викликаються), а `instructions`
+підлаштовуються:
+- **Ядро контенту** — завжди ON.
+- **`wp_cli`** — вимкни для «typed-only» режиму (максимально безпечно).
+- **Блоки**, **Контент і дискавері** — за потреби.
+- **Мультимовність** — з **авто-детектом**: показує «Виявлено: WP-LOC / WPML», а якщо жодної
+  системи нема — група прихована автоматично.
 
 ## Безпека
 
@@ -90,7 +116,8 @@ claude mcp add --transport http simple-mcp https://САЙТ/simple-mcp \
 - Пакет — zip гілки (`archive/refs/heads/<branch>.zip`); тека нормалізується під slug `simple-mcp`.
 - Щоб випустити оновлення: підніми `Version:` у заголовку `simple-mcp.php` і запуш у гілку.
 
-Гілку можна змінити: `define('SIMPLE_MCP_GITHUB_BRANCH', 'main');` у `wp-config.php` (типово `master`).
+Типова гілка — **`master`** (як у `wp-loc`). За потреби перевизначається константою
+`define('SIMPLE_MCP_GITHUB_BRANCH', '<гілка>');` у `wp-config.php`.
 
 ## Константи (`wp-config.php`)
 
