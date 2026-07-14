@@ -156,7 +156,7 @@ class Simple_MCP_Endpoint {
         if ($content) {
             $r[] = 'On an unfamiliar site call describe_site first to learn its blocks, fields, options, post types and languages (they differ per site).';
         }
-        $r[] = 'All content writes auto-create a revision and byte-verify (check content_verified:true). After edits, flush cache (wp_cli "cache flush" plus W3 Total Cache page flush) if a page cache is active. Prefer typed tools over raw wp_cli.';
+        $r[] = 'All content writes auto-create a revision and byte-verify (check content_verified:true). After edits, flush cache (wp_cli "cache flush" plus W3 Total Cache page flush) if a page cache is active. Prefer typed tools over raw wp_cli. When you do call wp_cli, pass argument values literally and quoted and NEVER JSON-encode text — non-ASCII gets \uXXXX-escaped and is stored verbatim (a Cyrillic title would be saved as the literal escape text, not the letters); for any write carrying human text (titles, excerpts, field values) use update_post / create_post / acf_update.';
         return implode(' ', $r);
     }
 

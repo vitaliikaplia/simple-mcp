@@ -37,11 +37,11 @@ class Simple_MCP_Tools {
     static function core_defs() {
         return [
             'wp_cli' => [
-                'description' => 'Run any WP-CLI command server-side (omit the leading "wp"; --path is added automatically). Returns stdout/stderr/exit_code. Destructive subcommands are deny-listed and shell metacharacters/chaining are blocked. SCOPE: this MCP is for CONTENT, options, media, taxonomies and translations — NOT code. Do NOT install/activate/update/edit plugins, themes, or files here: theme & plugin code is managed locally via git + CI/CD, so server-side code changes drift from git and are overwritten on the next deploy. For content edits prefer the typed tools (block_*, acf_*, wploc_*, create_post, upload_media) over raw wp_cli.',
+                'description' => 'Run any WP-CLI command server-side (omit the leading "wp"; --path is added automatically). Returns stdout/stderr/exit_code. Destructive subcommands are deny-listed and shell metacharacters/chaining are blocked. SCOPE: this MCP is for CONTENT, options, media, taxonomies and translations — NOT code. Do NOT install/activate/update/edit plugins, themes, or files here: theme & plugin code is managed locally via git + CI/CD, so server-side code changes drift from git and are overwritten on the next deploy. For content edits prefer the typed tools (block_*, acf_*, wploc_*, create_post, upload_media) over raw wp_cli. ARGUMENT QUOTING: the command is tokenized shell-style (quotes respected) then executed without a shell (argv), so pass text values literally and quoted, e.g. post update 12 --post_title="My Title". NEVER JSON-encode a value: JSON escapes non-ASCII to \uXXXX and that raw \uXXXX text is then saved verbatim (a Cyrillic title would appear in the DB as the raw text backslash-u-0417 backslash-u-0430 ... instead of the real letters). For any write that carries human text (titles, excerpts, field values) use the typed tools update_post / create_post / acf_update instead of wp_cli.',
                 'inputSchema' => [
                     'type'       => 'object',
                     'properties' => [
-                        'command' => ['type' => 'string', 'description' => 'WP-CLI command without "wp", e.g. "option get blogname" or "post list --post_type=page --format=json".'],
+                        'command' => ['type' => 'string', 'description' => 'WP-CLI command without "wp", e.g. "option get blogname" or "post list --post_type=page --format=json". Pass argument values literally and quoted; never JSON-encode text (non-ASCII gets \uXXXX-escaped and saved verbatim) — for human-text writes use the typed tools (update_post/create_post/acf_update).'],
                     ],
                     'required'   => ['command'],
                 ],
