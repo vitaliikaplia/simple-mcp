@@ -91,6 +91,14 @@ class Simple_MCP_Tools_SEO {
         return null;
     }
 
+    /** Слаг дефолтної мови: опція, або wpml_default_language-код → слаг (опції може не бути). */
+    static function default_slug() {
+        $slug = (string) get_option('wp_loc_default_language', '');
+        if ($slug !== '') return $slug;
+        $code = apply_filters('wpml_default_language', null);
+        return $code ? (string) (self::to_slug($code) ?: $code) : '';
+    }
+
     // ── Tools ─────────────────────────────────────────────────────────────
 
     static function get($args) {
@@ -164,7 +172,7 @@ class Simple_MCP_Tools_SEO {
         if (!class_exists('WP_LOC_AIOSEO_Options')) return self::err('wp-loc-aioseo is not active');
         $slug = self::to_slug((string) ($args['lang'] ?? ''));
         if (!$slug) return self::err('unknown language — use a wp-loc slug or wpml_code (see describe_site.languages)');
-        $default = get_option('wp_loc_default_language', '');
+        $default = self::default_slug();
         return self::ok([
             'lang'             => $slug,
             'default_language' => $default,
@@ -181,7 +189,7 @@ class Simple_MCP_Tools_SEO {
         if (!class_exists('WP_LOC_AIOSEO_Options')) return self::err('wp-loc-aioseo is not active');
         $slug = self::to_slug((string) ($args['lang'] ?? ''));
         if (!$slug) return self::err('unknown language — use a wp-loc slug or wpml_code');
-        if ($slug === get_option('wp_loc_default_language', '')) {
+        if ($slug !== '' && $slug === self::default_slug()) {
             return self::err('"' . $slug . '" is the DEFAULT language — its strings ARE the AIOSEO settings; edit aioseo_options_localized via wp_cli/admin instead');
         }
         $buckets = [];
