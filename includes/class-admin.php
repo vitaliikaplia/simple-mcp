@@ -56,12 +56,18 @@ class Simple_MCP_Admin {
         $o['deny_list']      = self::lines_to_array((string) ($in['deny_list'] ?? ''));
         $o['ip_allowlist']   = self::lines_to_array((string) ($in['ip_allowlist'] ?? ''));
 
-        // Групи інструментів. wploc: якщо системи багатомовності нема — зберігаємо намір (чекбокс disabled).
-        $ml = Simple_MCP::multilingual_system();
+        // Групи інструментів. Якщо відповідного плагіна нема — зберігаємо намір (чекбокс disabled).
+        $ml  = Simple_MCP::multilingual_system();
+        $wc  = class_exists('WP_LOC_WC');
+        $mc  = class_exists('WP_LOC_MC');
+        $seo = class_exists('WP_LOC_AIOSEO') && function_exists('aioseo');
         $o['modules'] = [
             'blocks'  => !empty($in['module_blocks']),
             'wploc'   => $ml ? !empty($in['module_wploc']) : (bool) ($o['modules']['wploc'] ?? true),
             'content' => !empty($in['module_content']),
+            'wc'      => $wc ? !empty($in['module_wc']) : (bool) ($o['modules']['wc'] ?? true),
+            'mc'      => $mc ? !empty($in['module_mc']) : (bool) ($o['modules']['mc'] ?? true),
+            'seo'     => $seo ? !empty($in['module_seo']) : (bool) ($o['modules']['seo'] ?? true),
         ];
 
         update_option(Simple_MCP::OPTION, $o);
@@ -169,6 +175,32 @@ class Simple_MCP_Admin {
                         <th scope="row">Контент і дискавері</th>
                         <td><label><input type="checkbox" name="module_content" value="1" <?php checked(!empty($o['modules']['content'])); ?>> <code>create_post, render_post, safe_delete, describe_site</code></label></td>
                     </tr>
+                    <?php
+                    // Опційні аддон-групи: чекбокс активний лише коли супутній плагін виявлено.
+                    $addon_rows = [
+                        ['key' => 'wc',  'title' => 'WooCommerce-синк',  'tools' => 'wc_sync_product, wc_synced_meta_keys',                          'found' => class_exists('WP_LOC_WC'),  'plugin' => 'wp-loc-woocommerce',
+                         'desc' => 'Синхронізація товарних даних (ціни, сток, SKU, варіації) між мовами.'],
+                        ['key' => 'mc',  'title' => 'Мультивалютність',  'tools' => 'mc_get_config, mc_set_rate, mc_set_product_prices',             'found' => class_exists('WP_LOC_MC'),  'plugin' => 'wp-loc-multicurrency',
+                         'desc' => 'Курси валют і пер-валютні ціни товарів (оверайди на товарі-джерелі).'],
+                        ['key' => 'seo', 'title' => 'SEO (AIOSEO)',      'tools' => 'seo_get, seo_update, seo_get_strings, seo_update_strings',      'found' => class_exists('WP_LOC_AIOSEO') && function_exists('aioseo'), 'plugin' => 'wp-loc-aioseo',
+                         'desc' => 'SEO-поля постів по мовах і переклади глобальних SEO-рядків.'],
+                    ];
+                    foreach ($addon_rows as $row): ?>
+                    <tr>
+                        <th scope="row"><?php echo esc_html($row['title']); ?></th>
+                        <td>
+                            <?php if ($row['found']): ?>
+                                <label><input type="checkbox" name="module_<?php echo esc_attr($row['key']); ?>" value="1" <?php checked(!empty($o['modules'][$row['key']])); ?>> <code><?php echo esc_html($row['tools']); ?></code></label>
+                                <span style="margin-left:8px;padding:2px 9px;border-radius:10px;background:#e6f4ea;color:#137333;font-weight:600;font-size:12px">● Виявлено: <?php echo esc_html($row['plugin']); ?></span>
+                                <p class="description"><?php echo esc_html($row['desc']); ?></p>
+                            <?php else: ?>
+                                <label style="color:#999"><input type="checkbox" disabled> <code><?php echo esc_html($row['tools']); ?></code></label>
+                                <span style="margin-left:8px;padding:2px 9px;border-radius:10px;background:#fce8e6;color:#c5221f;font-weight:600;font-size:12px">● Не виявлено</span>
+                                <p class="description">Плагін <code><?php echo esc_html($row['plugin']); ?></code> не активний — група прихована автоматично.</p>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
                 </table>
 
                 <h2>Налаштування</h2>
