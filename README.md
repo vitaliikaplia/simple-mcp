@@ -78,6 +78,10 @@ claude mcp add --transport http simple-mcp https://САЙТ/simple-mcp \
 | `mc_set_rate` | Курс валюти (1 базова = rate цільових); базову не чіпає. |
 | `mc_set_product_prices` | Пер-валютні ціни товару/варіації — авто-резолв на товар-джерело. |
 
+**SEO** (детект AIOSEO + wp-loc-aioseo)
+| `seo_get` / `seo_update` | SEO-поля поста (title/description/og/twitter/robots) — partial-safe. |
+| `seo_get_strings` / `seo_update_strings` | Глобальні SEO-рядки пер-мова (merge; `""` видаляє переклад). |
+
 ### Модулі (вмик/вимк в адмінці)
 **Налаштування → Simple MCP → Модулі інструментів.** Групи можна вимикати — тоді їхні тули
 повністю приховані від агента (не в `tools/list`, не викликаються), а `instructions`
@@ -89,6 +93,7 @@ claude mcp add --transport http simple-mcp https://САЙТ/simple-mcp \
   системи нема — група прихована автоматично.
 - **WooCommerce-синк** — авто-детект `wp-loc-woocommerce`; без нього група прихована.
 - **Мультивалютність** — авто-детект `wp-loc-multicurrency`; без нього група прихована.
+- **SEO** — авто-детект AIOSEO + `wp-loc-aioseo`; без них група прихована.
 
 ## Безпека
 

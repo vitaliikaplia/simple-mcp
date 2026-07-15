@@ -175,6 +175,22 @@ mc_set_product_prices {product_id, currency:"USD", regular_price:9.99}
 - `null` clears an override (falls back to rate conversion); the base currency cannot be
   overridden or given a rate — its prices are the regular WooCommerce prices.
 
+### SEO (optional AIOSEO + `wp-loc-aioseo` addons)
+```
+# per-post SEO — each language is a separate post ID:
+wploc_get_translations {element_id}       → pick the right language's ID
+seo_get {post_id}                          → title, description, og_*, twitter_*, robots_*
+seo_update {post_id, fields:{description:"…"}}   → partial-safe (other fields preserved)
+
+# site-wide strings (title templates, breadcrumbs, social homepage) per language:
+seo_get_strings {lang:"ru"}                → base = all translatable keys + default values
+seo_update_strings {lang:"ru", main:{key:"…"}}   → MERGE: only passed keys change
+```
+- `seo_update` never uses AIOSEO's savePost (which resets unpassed fields to defaults) —
+  partial updates are safe. `robots_noindex/nofollow` auto-flip `robots_default` off.
+- Strings: `""` deletes a translation (falls back to the default-language value); the
+  DEFAULT language is rejected — its strings are the AIOSEO settings themselves.
+
 ---
 
 ## 4. Gotchas that have actually broken things
@@ -217,4 +233,5 @@ mc_set_product_prices {product_id, currency:"USD", regular_price:9.99}
 | `safe_delete` | Translation-aware delete |
 | `wc_sync_product` / `wc_synced_meta_keys` | Sync product data across languages / list mirrored meta (optional addon) |
 | `mc_get_config` / `mc_set_rate` / `mc_set_product_prices` | Currencies, exchange rates, per-currency product prices (optional addon) |
+| `seo_get` / `seo_update` / `seo_get_strings` / `seo_update_strings` | Per-post AIOSEO fields per language, global SEO string translations (optional addon) |
 | `wp_cli` | God-mode backstop (content only — never code; see §0) |
