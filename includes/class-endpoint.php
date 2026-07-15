@@ -155,6 +155,7 @@ class Simple_MCP_Endpoint {
         $r[] = 'acf_update handles POST/user/term/OPTIONS ACF fields' . ($blocks ? ' but NOT fields inside blocks (use block_update for those).' : '.');
         if ($ml) {
             $r[] = 'This site is multilingual (' . $ml . '): each language is a SEPARATE post/term ID linked by a trid — resolve the right one with wploc_get_translations before editing.';
+            $r[] = 'To translate content: translate_list finds untranslated posts/products, translate_get fetches all translatable text (incl. SEO) in one package, you translate the strings, translate_apply writes them into the correct target post (creates/links it automatically).';
         }
         if ($wc) {
             $r[] = 'WooCommerce product data (prices, stock, SKU, attributes, variations) is synced FROM the default-language product to its translations — edit it on the source product and run wc_sync_product afterwards; never edit synced meta per-language (wc_synced_meta_keys lists them).';

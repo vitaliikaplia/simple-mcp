@@ -20,6 +20,7 @@ class Simple_MCP_Tools {
         $modules = [
             'Simple_MCP_Tools_Blocks'   => 'blocks',
             'Simple_MCP_Tools_Wploc'    => 'wploc',
+            'Simple_MCP_Tools_Translate' => 'wploc',
             'Simple_MCP_Tools_Content'  => 'content',
             'Simple_MCP_Tools_Describe' => 'content',
             'Simple_MCP_Tools_WC'       => 'wc',

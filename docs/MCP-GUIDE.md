@@ -147,6 +147,24 @@ wploc_create_translation {source_id, lang:"en"}    → duplicates + links a new 
 wploc_link_translation {source_id, target_id, lang}→ link two existing posts as translations
 ```
 
+### Translate a post / product (the batch workflow)
+```
+translate_list {post_type:"product", lang:"ru"}   → untranslated sources
+                                                     (missing / draft_copy / identical)
+translate_get  {post_id:123}                       → {title, excerpt, format,
+                                                      content_html | blocks:[{index,blockName,fields}],
+                                                      seo:{title,description,og_*}}
+…translate the strings in-session — keep ALL HTML markup and <!-- wp:… --> delimiters intact…
+translate_apply {source_id:123, lang:"ru",
+                 translated:{title, content_html, seo:{…}}, status:"publish"}
+```
+- The target post is created/linked automatically when missing; re-running is idempotent.
+- Products: prices/stock/variations re-sync from the default-language source after the write —
+  only TEXT needs translating. Flush page cache after publishing if one is active.
+- `identical` is a heuristic (brand names can legitimately match) — check with translate_get
+  before overwriting. translate_apply never restructures blocks: each index must hold the
+  same blockName as the source, and field keys must already exist in the target.
+
 ### Delete safely
 `safe_delete {post_id}` — refuses if translations exist (lists them); pass `allow_cascade:true`
 to delete **only** that post (siblings are never cascaded). Prefer trashing (omit `force`).
@@ -230,6 +248,7 @@ seo_update_strings {lang:"ru", main:{key:"…"}}   → MERGE: only passed keys c
 | `acf_get` / `acf_update` | POST/user/term/**options** ACF fields (NOT block fields) |
 | `upload_media` / `upload_begin`·`upload_chunk`·`upload_finish` | Media through resize+webp |
 | `wploc_get_translations` / `wploc_link_translation` / `wploc_create_translation` | Translations |
+| `translate_list` / `translate_get` / `translate_apply` | Batch translation workflow (find → package → write incl. SEO) |
 | `safe_delete` | Translation-aware delete |
 | `wc_sync_product` / `wc_synced_meta_keys` | Sync product data across languages / list mirrored meta (optional addon) |
 | `mc_get_config` / `mc_set_rate` / `mc_set_product_prices` | Currencies, exchange rates, per-currency product prices (optional addon) |

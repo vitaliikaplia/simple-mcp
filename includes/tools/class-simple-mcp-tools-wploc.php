@@ -171,46 +171,68 @@ class Simple_MCP_Tools_Wploc {
         if (!self::system()) return self::err('No multilingual system is active');
         $src = intval($args['source_id'] ?? 0);
         if (!$src) return self::err('source_id required');
-        $post = get_post($src);
-        if (!$post) return self::err('source post not found (create_translation supports posts)');
+        if (!get_post($src)) return self::err('source post not found (create_translation supports posts)');
         $lang = (string) ($args['lang'] ?? '');
         if ($lang === '') return self::err('lang required');
-        $status = sanitize_key($args['status'] ?? 'draft');
+
+        $r = self::ensure_translation($src, $lang, sanitize_key($args['status'] ?? 'draft'));
+        if (is_wp_error($r)) return self::err($r->get_error_message());
+        return self::ok([
+            'new_id' => $r['id'], 'existing' => !$r['created'],
+            'language' => $r['language'], 'trid' => $r['trid'],
+        ]);
+    }
+
+    /**
+     * Plain-PHP ядро create_translation (без MCP-конверта) — для внутрішнього повторного
+     * використання (translate-тули). Повертає ['id','created','language','trid'] або WP_Error.
+     */
+    static function ensure_translation($src, $lang, $status = 'draft') {
+        $post = get_post($src);
+        if (!$post) return new WP_Error('nopost', 'source post not found');
         $etype = 'post_' . $post->post_type;
         $code = self::to_code($lang);
 
         [, , $def] = self::lang_map();
         $src_lang = self::elem_lang($src, $etype, $def);
         if ($code === $src_lang) {
-            return self::err('target language ("' . $code . '") equals the source post language — nothing to create; edit the source directly.');
+            return new WP_Error('samelang', 'target language ("' . $code . '") equals the source post language — nothing to create; edit the source directly.');
         }
 
         // already translated? return it (guard: wpml_object_id returns the source itself for its own language)
         $existing = apply_filters('wpml_object_id', $src, $etype, false, $code);
         if ($existing && intval($existing) !== $src) {
-            return self::ok(['new_id' => intval($existing), 'existing' => true, 'language' => $code,
-                'trid' => intval(apply_filters('wpml_element_trid', null, $src, $etype))]);
+            return ['id' => intval($existing), 'created' => false, 'language' => $code,
+                'trid' => intval(apply_filters('wpml_element_trid', null, $src, $etype))];
         }
 
-        // NB: omit post_name — let WP generate a per-language slug (copying it yields "slug-2")
-        $new = wp_insert_post(wp_slash([
-            'post_type' => $post->post_type, 'post_status' => $status,
-            'post_title' => $post->post_title, 'post_content' => $post->post_content,
-            'post_excerpt' => $post->post_excerpt,
-            'post_parent' => $post->post_parent, 'menu_order' => $post->menu_order,
-        ]), true);
-        if (is_wp_error($new)) return self::err('duplicate failed: ' . $new->get_error_message());
+        // Не даємо wp-loc авто-плодити переклади нашого дубліката під час вставки
+        $off = fn() => '0';
+        add_filter('pre_option_wp_loc_auto_create_post_translations', $off);
+        try {
+            // NB: omit post_name — let WP generate a per-language slug (copying it yields "slug-2")
+            $new = wp_insert_post(wp_slash([
+                'post_type' => $post->post_type, 'post_status' => $status,
+                'post_title' => $post->post_title, 'post_content' => $post->post_content,
+                'post_excerpt' => $post->post_excerpt,
+                'post_parent' => $post->post_parent, 'menu_order' => $post->menu_order,
+            ]), true);
+            if (is_wp_error($new)) return new WP_Error('dupfail', 'duplicate failed: ' . $new->get_error_message());
 
-        // copy meta, but skip edit-locks and translation-internal keys; wp_slash on write
-        foreach (get_post_meta($src) as $mk => $vals) {
-            if (in_array($mk, ['_edit_lock', '_edit_last', '_wp_old_slug'], true)) continue;
-            if (preg_match('/^(wpml|_wpml|_icl)/', $mk)) continue;
-            foreach ($vals as $v) add_post_meta($new, $mk, wp_slash(maybe_unserialize($v)));
+            // copy meta, but skip edit-locks and translation-internal keys; wp_slash on write
+            foreach (get_post_meta($src) as $mk => $vals) {
+                if (in_array($mk, ['_edit_lock', '_edit_last', '_wp_old_slug'], true)) continue;
+                if (preg_match('/^(wpml|_wpml|_icl|_wp_loc_)/', $mk)) continue;
+                foreach ($vals as $v) add_post_meta($new, $mk, wp_slash(maybe_unserialize($v)));
+            }
+            delete_post_meta($new, '_wp_loc_is_new'); // прибираємо латентний тригер автостворення
+
+            self::link_translation(['source_id' => $src, 'target_id' => $new, 'lang' => $code, 'element_type' => $etype]);
+        } finally {
+            remove_filter('pre_option_wp_loc_auto_create_post_translations', $off);
         }
 
-        self::link_translation(['source_id' => $src, 'target_id' => $new, 'lang' => $code, 'element_type' => $etype]);
-
-        return self::ok(['new_id' => $new, 'existing' => false, 'language' => $code,
-            'trid' => intval(apply_filters('wpml_element_trid', null, $src, $etype))]);
+        return ['id' => $new, 'created' => true, 'language' => $code,
+            'trid' => intval(apply_filters('wpml_element_trid', null, $src, $etype))];
     }
 }

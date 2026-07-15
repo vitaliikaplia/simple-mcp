@@ -162,7 +162,7 @@ class Simple_MCP_Admin {
                         <td>
                             <?php $ml = Simple_MCP::multilingual_system(); ?>
                             <?php if ($ml): ?>
-                                <label><input type="checkbox" name="module_wploc" value="1" <?php checked(!empty($o['modules']['wploc'])); ?>> <code>wploc_get_translations / link / create</code></label>
+                                <label><input type="checkbox" name="module_wploc" value="1" <?php checked(!empty($o['modules']['wploc'])); ?>> <code>wploc_get_translations / link / create · translate_list / get / apply</code></label>
                                 <span style="margin-left:8px;padding:2px 9px;border-radius:10px;background:#e6f4ea;color:#137333;font-weight:600;font-size:12px">● Виявлено: <?php echo esc_html($ml === 'wp-loc' ? 'WP-LOC' : 'WPML'); ?></span>
                             <?php else: ?>
                                 <label style="color:#999"><input type="checkbox" disabled> <code>wploc_*</code></label>

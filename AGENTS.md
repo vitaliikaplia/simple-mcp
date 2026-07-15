@@ -19,6 +19,9 @@ behind the **"Server ops"** toggle (off by default). Confirm destructive ones wi
    `block_get` / `list_block_fields` / `block_update`. `acf_update` does **not** reach block fields.
 2. **Multilingual**: each language is a separate post/term ID linked by `trid`. Use
    `wploc_get_translations` to edit the right one; `wploc_create_translation` to add one.
+   To TRANSLATE content: `translate_list` (find untranslated) → `translate_get` (one package:
+   title/excerpt + html or top-level ACF block text fields + AIOSEO) → translate in-session →
+   `translate_apply` (creates/links the target, validates block structure, publishes).
 3. On an unfamiliar site, call **`describe_site`** first (blocks/fields/options/CPTs/languages
    differ per fork).
 4. Writes auto-revision + byte-verify (`content_verified`). Flush cache (W3TC) after edits.
