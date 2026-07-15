@@ -69,6 +69,10 @@ claude mcp add --transport http simple-mcp https://САЙТ/simple-mcp \
 | `safe_delete` | Translation-aware видалення (не каскадить переклади). |
 | `describe_site` | Схема форку: блоки+поля, ACF-опції, CPT/таксономії, мовна мапа. |
 
+**WooCommerce-синк** (детект wp-loc-woocommerce)
+| `wc_sync_product` | Синк цін/стоку/SKU/варіацій з товару-джерела на переклади (push/pull). |
+| `wc_synced_meta_keys` | Мета-ключі, що дзеркаляться між мовами — їх не редагувати per-language. |
+
 ### Модулі (вмик/вимк в адмінці)
 **Налаштування → Simple MCP → Модулі інструментів.** Групи можна вимикати — тоді їхні тули
 повністю приховані від агента (не в `tools/list`, не викликаються), а `instructions`
@@ -78,6 +82,7 @@ claude mcp add --transport http simple-mcp https://САЙТ/simple-mcp \
 - **Блоки**, **Контент і дискавері** — за потреби.
 - **Мультимовність** — з **авто-детектом**: показує «Виявлено: WP-LOC / WPML», а якщо жодної
   системи нема — група прихована автоматично.
+- **WooCommerce-синк** — авто-детект `wp-loc-woocommerce`; без нього група прихована.
 
 ## Безпека
 

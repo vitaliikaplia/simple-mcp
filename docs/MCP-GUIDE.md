@@ -151,6 +151,17 @@ wploc_link_translation {source_id, target_id, lang}→ link two existing posts a
 `safe_delete {post_id}` — refuses if translations exist (lists them); pass `allow_cascade:true`
 to delete **only** that post (siblings are never cascaded). Prefer trashing (omit `force`).
 
+### WooCommerce product data (optional `wp-loc-woocommerce` addon)
+```
+wc_synced_meta_keys {}              → which product meta is mirrored between languages
+# edit prices/stock/SKU/attributes on the DEFAULT-LANGUAGE product…
+wc_sync_product {product_id}        → push to all translations (pull from source when
+                                      called on a translation; accepts a variation ID)
+```
+- Never edit a synced meta key on a translation — the next sync overwrites it with the
+  source value. Translated TEXT (title, description, ACF texts) is never touched.
+- The sync MUTATES translations (synced meta overwritten, orphan mirror variations removed).
+
 ---
 
 ## 4. Gotchas that have actually broken things
@@ -191,4 +202,5 @@ to delete **only** that post (siblings are never cascaded). Prefer trashing (omi
 | `upload_media` / `upload_begin`·`upload_chunk`·`upload_finish` | Media through resize+webp |
 | `wploc_get_translations` / `wploc_link_translation` / `wploc_create_translation` | Translations |
 | `safe_delete` | Translation-aware delete |
+| `wc_sync_product` / `wc_synced_meta_keys` | Sync product data across languages / list mirrored meta (optional addon) |
 | `wp_cli` | God-mode backstop (content only — never code; see §0) |
