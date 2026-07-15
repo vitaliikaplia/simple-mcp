@@ -115,37 +115,36 @@ class Simple_MCP_Tools_Translate {
             }
             $types = [$pt];
         }
-        $etypes = array_map(fn($t) => 'post_' . $t, $types);
-
         $limit  = max(1, min(200, intval($args['limit'] ?? 50)));
         $offset = max(0, intval($args['offset'] ?? 0));
 
         $icl   = WP_LOC::instance()->db->get_table();
         $posts = $wpdb->posts;
-        $ph    = implode(',', array_fill(0, count($etypes), '%s'));
 
         // Один прохід на мову; злиття по id. Стани: missing > draft_copy > identical.
+        // Джерела їдуть від таблиці постів: ловимо і пости, ще НЕ зареєстровані в icl
+        // (wp-loc реєструє лише на другому збереженні) — вони теж «неперекладені».
+        $type_ph = implode(',', array_fill(0, count($types), '%s'));
         $items = [];
         $total = 0;
         foreach ($targets as $code => $slug) {
             $sql = $wpdb->prepare(
-                "SELECT s.element_id AS id, ps.post_type, ps.post_title,
-                        tr.element_id AS tr_id, pt.post_status AS tr_status,
-                        (CHAR_LENGTH(ps.post_title) > 0 AND pt.post_title = ps.post_title COLLATE utf8mb4_bin) AS same_title,
-                        (CHAR_LENGTH(ps.post_content) > 0 AND pt.post_content = ps.post_content COLLATE utf8mb4_bin) AS same_content
-                 FROM {$icl} s
-                 JOIN {$posts} ps ON ps.ID = s.element_id
+                "SELECT ps.ID AS id, ps.post_type, ps.post_title,
+                        s.element_id AS reg_id,
+                        tr.element_id AS tr_id, pt.post_status AS tr_status
+                 FROM {$posts} ps
+                 LEFT JOIN {$icl} s ON s.element_id = ps.ID AND s.element_type = CONCAT('post_', ps.post_type)
                  LEFT JOIN {$icl} tr ON tr.trid = s.trid AND tr.element_type = s.element_type AND tr.language_code = %s
                  LEFT JOIN {$posts} pt ON pt.ID = tr.element_id
-                 WHERE s.element_type IN ($ph)
-                   AND s.language_code = %s
+                 WHERE ps.post_type IN ($type_ph)
                    AND ps.post_status = 'publish'
+                   AND ( s.element_id IS NULL OR s.language_code = %s )
                    AND ( tr.element_id IS NULL
                       OR pt.post_status = 'draft'
                       OR (CHAR_LENGTH(ps.post_title) > 0 AND pt.post_title = ps.post_title COLLATE utf8mb4_bin)
                       OR (CHAR_LENGTH(ps.post_content) > 0 AND pt.post_content = ps.post_content COLLATE utf8mb4_bin) )
-                 ORDER BY ps.post_type, s.element_id",
-                array_merge([$code], $etypes, [$def])
+                 ORDER BY ps.post_type, ps.ID",
+                array_merge([$code], $types, [$def])
             );
             foreach ((array) $wpdb->get_results($sql) as $row) {
                 $id = intval($row->id);
