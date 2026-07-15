@@ -162,6 +162,19 @@ wc_sync_product {product_id}        → push to all translations (pull from sour
   source value. Translated TEXT (title, description, ACF texts) is never touched.
 - The sync MUTATES translations (synced meta overwritten, orphan mirror variations removed).
 
+### Multi-currency (optional `wp-loc-multicurrency` addon)
+```
+mc_get_config {}                                → currencies, rates, mode, language map
+mc_set_rate {currency:"USD", rate:0.027}        → 1 base unit = rate target units
+mc_set_product_prices {product_id, currency:"USD", regular_price:9.99}
+                                                → per-product override (beats the rate)
+```
+- Overrides live on the SOURCE (default-language) product/variation — the tool auto-resolves
+  a translation ID to the source and reports `source_product_id`.
+- Variable products: pass the VARIATION id (prices are per-variation).
+- `null` clears an override (falls back to rate conversion); the base currency cannot be
+  overridden or given a rate — its prices are the regular WooCommerce prices.
+
 ---
 
 ## 4. Gotchas that have actually broken things
@@ -203,4 +216,5 @@ wc_sync_product {product_id}        → push to all translations (pull from sour
 | `wploc_get_translations` / `wploc_link_translation` / `wploc_create_translation` | Translations |
 | `safe_delete` | Translation-aware delete |
 | `wc_sync_product` / `wc_synced_meta_keys` | Sync product data across languages / list mirrored meta (optional addon) |
+| `mc_get_config` / `mc_set_rate` / `mc_set_product_prices` | Currencies, exchange rates, per-currency product prices (optional addon) |
 | `wp_cli` | God-mode backstop (content only — never code; see §0) |

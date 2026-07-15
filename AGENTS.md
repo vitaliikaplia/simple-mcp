@@ -27,6 +27,9 @@ behind the **"Server ops"** toggle (off by default). Confirm destructive ones wi
 6. WooCommerce (optional `wp-loc-woocommerce`): product data (prices/stock/SKU/attributes/
    variations) mirrors FROM the default-language product — edit the source, then
    `wc_sync_product`; never edit synced meta per-language (`wc_synced_meta_keys` lists them).
+7. Multi-currency (optional `wp-loc-multicurrency`): per-currency price overrides live on the
+   SOURCE product/variation (`mc_set_product_prices` auto-resolves); the base currency has no
+   rate and no overrides.
 
 ## Code layout
 - `simple-mcp.php` — bootstrap, constants, module autoload.
@@ -35,8 +38,8 @@ behind the **"Server ops"** toggle (off by default). Confirm destructive ones wi
 - `includes/class-auth.php` / `class-audit.php` / `class-admin.php` — auth, audit log, settings.
 - `includes/class-tools.php` — core tools + shared `save_post_content` (auto-revision + wp_slash
   + verify) + registry that merges tool modules.
-- `includes/tools/class-simple-mcp-tools-{blocks,wploc,content,describe,wc}.php` — tool modules
-  (each exposes `defs()`; wc is optional — hidden unless its companion plugin is active).
+- `includes/tools/class-simple-mcp-tools-{blocks,wploc,content,describe,wc,mc}.php` — tool modules
+  (each exposes `defs()`; wc/mc are optional — hidden unless their companion plugin is active).
 - `includes/class-simple-mcp-github-updater.php` — GitHub auto-update.
 
 ## Adding a tool
