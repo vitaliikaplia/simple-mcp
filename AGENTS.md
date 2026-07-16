@@ -19,11 +19,23 @@ behind the **"Server ops"** toggle (off by default). Confirm destructive ones wi
    `block_get` / `list_block_fields` / `block_update`. `acf_update` does **not** reach block fields.
 2. **Multilingual**: each language is a separate post/term ID linked by `trid`. Use
    `wploc_get_translations` to edit the right one; `wploc_create_translation` to add one.
+   To TRANSLATE content: `translate_list` (find untranslated) → `translate_get` (one package:
+   title/excerpt + html or top-level ACF block text fields + AIOSEO) → translate in-session →
+   `translate_apply` (creates/links the target, validates block structure, publishes).
 3. On an unfamiliar site, call **`describe_site`** first (blocks/fields/options/CPTs/languages
    differ per fork).
 4. Writes auto-revision + byte-verify (`content_verified`). Flush cache (W3TC) after edits.
 5. Two options systems: ACF options (`acf_update` post_id `"option"`) vs plain Settings-API
    (`wp_cli option update`). `describe_site` lists the ACF ones.
+6. WooCommerce (optional `wp-loc-woocommerce`): product data (prices/stock/SKU/attributes/
+   variations) mirrors FROM the default-language product — edit the source, then
+   `wc_sync_product`; never edit synced meta per-language (`wc_synced_meta_keys` lists them).
+7. Multi-currency (optional `wp-loc-multicurrency`): per-currency price overrides live on the
+   SOURCE product/variation (`mc_set_product_prices` auto-resolves); the base currency has no
+   rate and no overrides.
+8. SEO (optional AIOSEO + `wp-loc-aioseo`): per-post SEO is per post ID (one per language;
+   `seo_update` is partial-safe — never AIOSEO's savePost); global strings per language via
+   `seo_update_strings` (MERGE, `""` deletes, default language rejected).
 
 ## Code layout
 - `simple-mcp.php` — bootstrap, constants, module autoload.
@@ -32,8 +44,9 @@ behind the **"Server ops"** toggle (off by default). Confirm destructive ones wi
 - `includes/class-auth.php` / `class-audit.php` / `class-admin.php` — auth, audit log, settings.
 - `includes/class-tools.php` — core tools + shared `save_post_content` (auto-revision + wp_slash
   + verify) + registry that merges tool modules.
-- `includes/tools/class-simple-mcp-tools-{blocks,wploc,content,describe}.php` — tool modules
-  (each exposes `defs()`).
+- `includes/tools/class-simple-mcp-tools-{blocks,wploc,content,describe,wc,mc,seo}.php` — tool
+  modules (each exposes `defs()`; wc/mc/seo are optional — hidden unless their companion
+  plugin is active).
 - `includes/class-simple-mcp-github-updater.php` — GitHub auto-update.
 
 ## Adding a tool

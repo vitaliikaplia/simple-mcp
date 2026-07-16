@@ -136,6 +136,9 @@ class Simple_MCP_Endpoint {
         $blocks  = Simple_MCP::module_on('blocks');
         $ml      = Simple_MCP::module_on('wploc') ? Simple_MCP::multilingual_system() : null;
         $content = Simple_MCP::module_on('content');
+        $wc      = Simple_MCP::module_on('wc') && class_exists('WP_LOC_WC');
+        $mc      = Simple_MCP::module_on('mc') && class_exists('WP_LOC_MC');
+        $seo     = Simple_MCP::module_on('seo') && class_exists('WP_LOC_AIOSEO') && function_exists('aioseo');
 
         $server = Simple_MCP::opt('allow_server_ops', false);
 
@@ -152,6 +155,16 @@ class Simple_MCP_Endpoint {
         $r[] = 'acf_update handles POST/user/term/OPTIONS ACF fields' . ($blocks ? ' but NOT fields inside blocks (use block_update for those).' : '.');
         if ($ml) {
             $r[] = 'This site is multilingual (' . $ml . '): each language is a SEPARATE post/term ID linked by a trid — resolve the right one with wploc_get_translations before editing.';
+            $r[] = 'To translate content: translate_list finds untranslated posts/products, translate_get fetches all translatable text (incl. SEO) in one package, you translate the strings, translate_apply writes them into the correct target post (creates/links it automatically).';
+        }
+        if ($wc) {
+            $r[] = 'WooCommerce product data (prices, stock, SKU, attributes, variations) is synced FROM the default-language product to its translations — edit it on the source product and run wc_sync_product afterwards; never edit synced meta per-language (wc_synced_meta_keys lists them).';
+        }
+        if ($mc) {
+            $r[] = 'Multi-currency: per-currency price overrides live on the SOURCE (default-language) product/variation — mc_set_product_prices auto-resolves to it; exchange rates via mc_set_rate; the base currency is WooCommerce\'s own and cannot have a rate.';
+        }
+        if ($seo) {
+            $r[] = 'SEO (AIOSEO) data is per post ID — each language has its own post ID with its own seo_get/seo_update; site-wide SEO string translations per language via seo_get_strings/seo_update_strings (MERGE semantics — only the keys you pass change).';
         }
         if ($content) {
             $r[] = 'On an unfamiliar site call describe_site first to learn its blocks, fields, options, post types and languages (they differ per site).';

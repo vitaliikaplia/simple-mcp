@@ -62,12 +62,28 @@ claude mcp add --transport http simple-mcp https://САЙТ/simple-mcp \
 
 **Мультимовність** (детект wp-loc/WPML)
 | `wploc_get_translations` / `wploc_link_translation` / `wploc_create_translation` | Резолв/лінк/створення перекладів (trid, slug↔wpml_code). |
+| `translate_list` | Джерельні пости без перекладу по мовах (missing / draft_copy / identical). |
+| `translate_get` | Увесь перекладний текст поста одним пакетом (title/excerpt + html або блокові поля + SEO). |
+| `translate_apply` | Запис перекладу в цільовий пост: створює/лінкує переклад, валідує структуру блоків, публікує. |
 
 **Контент і дискавері**
 | `create_post` | Створити пост/сторінку/CPT з block-safe тілом. |
 | `render_post` | Рендер `do_blocks` HTML для верифікації. |
 | `safe_delete` | Translation-aware видалення (не каскадить переклади). |
 | `describe_site` | Схема форку: блоки+поля, ACF-опції, CPT/таксономії, мовна мапа. |
+
+**WooCommerce-синк** (детект wp-loc-woocommerce)
+| `wc_sync_product` | Синк цін/стоку/SKU/варіацій з товару-джерела на переклади (push/pull). |
+| `wc_synced_meta_keys` | Мета-ключі, що дзеркаляться між мовами — їх не редагувати per-language. |
+
+**Мультивалютність** (детект wp-loc-multicurrency)
+| `mc_get_config` | Валюти, курси, режим (language/switcher), мапа мова→валюта. |
+| `mc_set_rate` | Курс валюти (1 базова = rate цільових); базову не чіпає. |
+| `mc_set_product_prices` | Пер-валютні ціни товару/варіації — авто-резолв на товар-джерело. |
+
+**SEO** (детект AIOSEO + wp-loc-aioseo)
+| `seo_get` / `seo_update` | SEO-поля поста (title/description/og/twitter/robots) — partial-safe. |
+| `seo_get_strings` / `seo_update_strings` | Глобальні SEO-рядки пер-мова (merge; `""` видаляє переклад). |
 
 ### Модулі (вмик/вимк в адмінці)
 **Налаштування → Simple MCP → Модулі інструментів.** Групи можна вимикати — тоді їхні тули
@@ -78,6 +94,9 @@ claude mcp add --transport http simple-mcp https://САЙТ/simple-mcp \
 - **Блоки**, **Контент і дискавері** — за потреби.
 - **Мультимовність** — з **авто-детектом**: показує «Виявлено: WP-LOC / WPML», а якщо жодної
   системи нема — група прихована автоматично.
+- **WooCommerce-синк** — авто-детект `wp-loc-woocommerce`; без нього група прихована.
+- **Мультивалютність** — авто-детект `wp-loc-multicurrency`; без нього група прихована.
+- **SEO** — авто-детект AIOSEO + `wp-loc-aioseo`; без них група прихована.
 
 ## Безпека
 

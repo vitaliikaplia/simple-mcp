@@ -20,12 +20,19 @@ class Simple_MCP_Tools {
         $modules = [
             'Simple_MCP_Tools_Blocks'   => 'blocks',
             'Simple_MCP_Tools_Wploc'    => 'wploc',
+            'Simple_MCP_Tools_Translate' => 'wploc',
             'Simple_MCP_Tools_Content'  => 'content',
             'Simple_MCP_Tools_Describe' => 'content',
+            'Simple_MCP_Tools_WC'       => 'wc',
+            'Simple_MCP_Tools_MC'       => 'mc',
+            'Simple_MCP_Tools_SEO'      => 'seo',
         ];
         foreach ($modules as $cls => $group) {
             if (!Simple_MCP::module_on($group)) continue;
             if ($group === 'wploc' && !Simple_MCP::multilingual_system()) continue; // no wp-loc/WPML → hide
+            if ($group === 'wc' && !class_exists('WP_LOC_WC')) continue;            // no wp-loc-woocommerce → hide
+            if ($group === 'mc' && !class_exists('WP_LOC_MC')) continue;            // no wp-loc-multicurrency → hide
+            if ($group === 'seo' && !(class_exists('WP_LOC_AIOSEO') && function_exists('aioseo'))) continue; // no wp-loc-aioseo → hide
             if (class_exists($cls) && method_exists($cls, 'defs')) {
                 $reg = array_merge($reg, (array) $cls::defs());
             }
