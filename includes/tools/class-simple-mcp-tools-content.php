@@ -36,12 +36,13 @@ class Simple_MCP_Tools_Content {
                 'callback' => [__CLASS__, 'render_post'],
             ],
             'safe_delete' => [
-                'description' => 'Translation-aware delete. If the post has linked translations (wp-loc/WPML), it refuses unless allow_cascade:true, and even then deletes ONLY this post (siblings are left intact, never cascaded). force:true bypasses trash. Prevents the "deleted a source and lost all its translations" class of mistakes.',
+                'description' => 'Translation-aware delete with EXPLICIT scope. Modes: (1) default — refuses when the post has linked translations (lists them); (2) allow_cascade:true — deletes ONLY this post, translation siblings are left intact (wp-loc\'s own group-cascade is suppressed for this call); (3) delete_translations:true — deliberately deletes the WHOLE translation group: this post AND every linked sibling. force:true bypasses trash (permanent). Never mixes modes silently — what you ask is exactly what is deleted.',
                 'inputSchema' => ['type' => 'object', 'additionalProperties' => false,
                     'properties' => [
-                        'post_id'       => ['type' => 'integer'],
-                        'force'         => ['type' => 'boolean', 'description' => 'skip trash, permanently delete'],
-                        'allow_cascade' => ['type' => 'boolean', 'description' => 'proceed even if translations exist (still deletes only this post)'],
+                        'post_id'             => ['type' => 'integer'],
+                        'force'               => ['type' => 'boolean', 'description' => 'skip trash, permanently delete'],
+                        'allow_cascade'       => ['type' => 'boolean', 'description' => 'proceed even if translations exist — deletes ONLY this post, siblings stay'],
+                        'delete_translations' => ['type' => 'boolean', 'description' => 'delete the WHOLE translation group (this post + all linked siblings)'],
                     ],
                     'required' => ['post_id']],
                 'callback' => [__CLASS__, 'safe_delete'],
@@ -120,30 +121,52 @@ class Simple_MCP_Tools_Content {
                 if (intval($tid) !== $id) $siblings[$code] = intval($tid);
             }
         }
-        if ($siblings && empty($args['allow_cascade'])) {
+        $group = !empty($args['delete_translations']);
+        if ($siblings && !$group && empty($args['allow_cascade'])) {
             return self::err('Post ' . $id . ' has translations ' . wp_json_encode($siblings)
-                . '. Deleting may orphan them. Re-call with allow_cascade:true to delete ONLY this post (translations left intact), or delete each language explicitly.');
+                . '. Either delete the WHOLE group with delete_translations:true, or re-call with allow_cascade:true to delete ONLY this post (translations left intact).');
         }
 
         $force = !empty($args['force']);
-        // wp-loc ≥1.4.1 каскадно видаляє переклади на before_delete_post — а контракт цього
-        // тула «сиблінгів ніколи не чіпаємо». Знімаємо його хук на час нашого видалення.
+        // Каскадом керуємо самі в обох режимах (wp-loc ≥1.4.1 на before_delete_post зносить
+        // усю групу): знімаємо його хук, видаляємо рівно те, що просили, повертаємо хук.
+        // Це ж робить delete_translations детермінованим і на WPML (де каскаду нема).
         $detached = false;
-        if ($force && class_exists('WP_LOC') && isset(WP_LOC::instance()->content)) {
+        $sync_off = false;
+        if (class_exists('WP_LOC') && isset(WP_LOC::instance()->content)) {
             $detached = remove_action('before_delete_post', [WP_LOC::instance()->content, 'handle_delete_post']);
+            // Інакше статус-синк затрешить сиблінга ДО нашого wp_delete_post по ньому,
+            // а wp_delete_post на вже-затрешеному пості видаляє його НАЗАВЖДИ.
+            $sync_off = remove_action('save_post', [WP_LOC::instance()->content, 'sync_translations'], 30);
         }
+        $targets = $group ? array_merge([$id], array_values(array_filter($siblings))) : [$id];
+        $deleted = [];
+        $failed  = [];
         try {
-            $r = wp_delete_post($id, $force);
+            foreach ($targets as $tid) {
+                if (!$force && get_post_status($tid) === 'trash') { $deleted[] = $tid; continue; } // вже в кошику
+                if (!wp_delete_post($tid, $force)) { $failed[] = $tid; continue; }
+                $deleted[] = $tid;
+                if ($force && class_exists('WP_LOC')) {
+                    // хук знято → чистимо icl-рядок видаленого поста самі
+                    WP_LOC::instance()->db->delete_element($tid, $etype);
+                }
+            }
         } finally {
             if ($detached) {
                 add_action('before_delete_post', [WP_LOC::instance()->content, 'handle_delete_post']);
             }
+            if ($sync_off) {
+                add_action('save_post', [WP_LOC::instance()->content, 'sync_translations'], 30, 2);
+            }
         }
-        if (!$r) return self::err('delete failed');
-        if ($detached && $trid) {
-            // хук знято → чистимо icl-рядок видаленого поста самі (сиблінги лишаються)
-            WP_LOC::instance()->db->delete_element($id, $etype);
-        }
-        return self::ok(['deleted' => $id, 'trashed' => !$force, 'siblings_left' => $siblings ?: (object) []]);
+        if (!$deleted) return self::err('delete failed');
+        return self::ok([
+            'deleted'       => $deleted,
+            'failed'        => $failed,
+            'trashed'       => !$force,
+            'group_deleted' => $group,
+            'siblings_left' => $group ? (object) [] : ($siblings ?: (object) []),
+        ]);
     }
 }

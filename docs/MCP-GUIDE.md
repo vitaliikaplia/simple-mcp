@@ -148,8 +148,10 @@ wploc_link_translation {source_id, target_id, lang}→ link two existing posts a
 ```
 
 ### Delete safely
-`safe_delete {post_id}` — refuses if translations exist (lists them); pass `allow_cascade:true`
-to delete **only** that post (siblings are never cascaded). Prefer trashing (omit `force`).
+`safe_delete {post_id}` — refuses if translations exist (lists them). Then choose the scope
+explicitly: `allow_cascade:true` deletes **only** that post (siblings stay; wp-loc's own
+group-cascade is suppressed for the call), or `delete_translations:true` deletes the **whole
+translation group** (this post + every linked sibling). Prefer trashing (omit `force`).
 
 ---
 
