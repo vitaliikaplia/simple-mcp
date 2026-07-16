@@ -26,7 +26,7 @@ class Simple_MCP {
             'wp_bin'         => '',   // шлях до бінарника wp ('' = автовизначення)
             'php_bin'        => '',   // шлях до CLI-php ('' = автовизначення)
             // Групи інструментів, які можна вмикати/вимикати (ядро контенту завжди ON)
-            'modules'        => ['blocks' => true, 'wploc' => true, 'content' => true],
+            'modules'        => ['blocks' => true, 'wploc' => true, 'content' => true, 'wc' => true, 'mc' => true, 'seo' => true],
         ];
     }
 
