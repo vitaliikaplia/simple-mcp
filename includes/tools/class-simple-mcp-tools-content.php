@@ -126,8 +126,24 @@ class Simple_MCP_Tools_Content {
         }
 
         $force = !empty($args['force']);
-        $r = wp_delete_post($id, $force);
+        // wp-loc ≥1.4.1 каскадно видаляє переклади на before_delete_post — а контракт цього
+        // тула «сиблінгів ніколи не чіпаємо». Знімаємо його хук на час нашого видалення.
+        $detached = false;
+        if ($force && class_exists('WP_LOC') && isset(WP_LOC::instance()->content)) {
+            $detached = remove_action('before_delete_post', [WP_LOC::instance()->content, 'handle_delete_post']);
+        }
+        try {
+            $r = wp_delete_post($id, $force);
+        } finally {
+            if ($detached) {
+                add_action('before_delete_post', [WP_LOC::instance()->content, 'handle_delete_post']);
+            }
+        }
         if (!$r) return self::err('delete failed');
+        if ($detached && $trid) {
+            // хук знято → чистимо icl-рядок видаленого поста самі (сиблінги лишаються)
+            WP_LOC::instance()->db->delete_element($id, $etype);
+        }
         return self::ok(['deleted' => $id, 'trashed' => !$force, 'siblings_left' => $siblings ?: (object) []]);
     }
 }
