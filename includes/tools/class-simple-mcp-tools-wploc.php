@@ -113,6 +113,7 @@ class Simple_MCP_Tools_Wploc {
 
     static function get_translations($args) {
         if (!self::system()) return self::err('No multilingual system (wp-loc / WPML) is active');
+        if (!current_user_can('edit_posts')) return Simple_MCP_Tools::err_cap('edit_posts');
         $eid = intval($args['element_id'] ?? 0);
         if (!$eid) return self::err('element_id required');
         $etype = self::resolve_etype($eid, $args['element_type'] ?? null);
@@ -144,6 +145,19 @@ class Simple_MCP_Tools_Wploc {
         if ($lang === '') return self::err('lang required');
         $etype = self::resolve_etype($src, $args['element_type'] ?? null);
         if (!$etype) return self::err('element_type required');
+
+        // Нативні права: для постів — edit_post на обидва елементи; для термів — cap таксономії
+        if (strpos($etype, 'post_') === 0) {
+            foreach ([$src, $tgt] as $pid) {
+                if (!Simple_MCP_Tools::can_edit_post($pid)) return Simple_MCP_Tools::err_cap('edit_post #' . $pid);
+            }
+        } else {
+            // etype = 'tax_{taxonomy}' — беремо cap саме цієї таксономії (не хардкодимо manage_categories)
+            $tax = strpos($etype, 'tax_') === 0 ? substr($etype, 4) : '';
+            $txo = $tax ? get_taxonomy($tax) : null;
+            $cap = ($txo && !empty($txo->cap->edit_terms)) ? $txo->cap->edit_terms : 'manage_categories';
+            if (!current_user_can($cap)) return Simple_MCP_Tools::err_cap($cap . ' (лінкування термів' . ($tax ? ' ' . $tax : '') . ')');
+        }
 
         [, , $def] = self::lang_map();
         $code = self::to_code($lang);
@@ -179,6 +193,16 @@ class Simple_MCP_Tools_Wploc {
         $etype = 'post_' . $post->post_type;
         $code = self::to_code($lang);
 
+        // Нативні права: edit_post на джерело (лінкування змінює його групу перекладів)
+        // + створення постів цього типу (+ публікація, якщо запитана)
+        if (!Simple_MCP_Tools::can_edit_post($src)) return Simple_MCP_Tools::err_cap('edit_post #' . $src);
+        $pto = get_post_type_object($post->post_type);
+        $create_cap = !empty($pto->cap->create_posts) ? $pto->cap->create_posts : 'edit_posts';
+        if (!current_user_can($create_cap)) return Simple_MCP_Tools::err_cap($create_cap . ' (' . $post->post_type . ')');
+        if (Simple_MCP_Tools::is_publish_status($status) && !Simple_MCP_Tools::can_publish_type($post->post_type)) {
+            return Simple_MCP_Tools::err_cap('publish_posts (' . $post->post_type . ')');
+        }
+
         [, , $def] = self::lang_map();
         $src_lang = self::elem_lang($src, $etype, $def);
         if ($code === $src_lang) {
@@ -208,7 +232,12 @@ class Simple_MCP_Tools_Wploc {
             foreach ($vals as $v) add_post_meta($new, $mk, wp_slash(maybe_unserialize($v)));
         }
 
-        self::link_translation(['source_id' => $src, 'target_id' => $new, 'lang' => $code, 'element_type' => $etype]);
+        $link = self::link_translation(['source_id' => $src, 'target_id' => $new, 'lang' => $code, 'element_type' => $etype]);
+        if (!empty($link['isError'])) {
+            // Дублікат створено, але зареєструвати як переклад не вдалося — не рапортуємо хибний успіх
+            $why = $link['content'][0]['text'] ?? 'link error';
+            return self::err('Дублікат #' . $new . ' створено, але його не вдалося зареєструвати як переклад: ' . $why);
+        }
 
         return self::ok(['new_id' => $new, 'existing' => false, 'language' => $code,
             'trid' => intval(apply_filters('wpml_element_trid', null, $src, $etype))]);

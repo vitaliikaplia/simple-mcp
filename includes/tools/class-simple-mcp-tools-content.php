@@ -55,9 +55,16 @@ class Simple_MCP_Tools_Content {
     static function create_post($args) {
         $pt = sanitize_key($args['post_type'] ?? 'post');
         if (!post_type_exists($pt)) return self::err('unknown post_type: ' . $pt);
+        $pto = get_post_type_object($pt);
+        $create_cap = !empty($pto->cap->create_posts) ? $pto->cap->create_posts : 'edit_posts';
+        if (!current_user_can($create_cap)) return Simple_MCP_Tools::err_cap($create_cap . ' (' . $pt . ')');
+        $status = sanitize_key($args['status'] ?? 'draft');
+        if (Simple_MCP_Tools::is_publish_status($status) && !Simple_MCP_Tools::can_publish_type($pt)) {
+            return Simple_MCP_Tools::err_cap('publish_posts (' . $pt . ')');
+        }
         $arr = [
             'post_type'   => $pt,
-            'post_status' => sanitize_key($args['status'] ?? 'draft'),
+            'post_status' => $status,
             'post_title'  => (string) ($args['title'] ?? ''),
         ];
         $has_content = array_key_exists('content', $args);
@@ -82,6 +89,7 @@ class Simple_MCP_Tools_Content {
         $id = intval($args['post_id'] ?? 0);
         $post = $id ? get_post($id) : null;
         if (!$post) return self::err('post not found');
+        if (!Simple_MCP_Tools::can_read_post($post)) return Simple_MCP_Tools::err_cap('читання неопублікованого поста #' . $id);
         $lang = $args['lang'] ?? null;
         $prev_lang = null;
         if ($lang) {
@@ -109,6 +117,7 @@ class Simple_MCP_Tools_Content {
         $id = intval($args['post_id'] ?? 0);
         $post = $id ? get_post($id) : null;
         if (!$post) return self::err('post not found');
+        if (!current_user_can('delete_post', $id)) return Simple_MCP_Tools::err_cap('delete_post #' . $id);
 
         $etype = 'post_' . $post->post_type;
         $siblings = [];

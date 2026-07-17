@@ -15,6 +15,13 @@ per fork**, so discover them at runtime (see `describe_site` / `list_block_field
 
 Primary job: **content, options, media, taxonomies, translations**.
 
+**You act as a specific WordPress user.** Your key is personal: every call runs under that
+user's native role and capabilities (the `initialize` instructions tell you who). Tool groups
+the role isn't granted are absent from `tools/list`; inside a group, object-level rights are
+re-checked per call (an author edits only their own posts, options need `manage_options`,
+publishing needs `publish_posts`). A capability-denied error is the system working — don't
+retry or route around it; tell the user which permission is missing.
+
 - ✅ **Content:** edit page blocks, fill ACF values, upload media, manage terms & CPT items,
   edit theme options, create/link translations.
 - ❌ **Never edit theme/plugin CODE files** (PHP/JS/CSS) here — that's `git → CI/CD`. Only the

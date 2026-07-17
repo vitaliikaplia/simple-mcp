@@ -94,6 +94,7 @@ class Simple_MCP_Tools_Blocks {
         $post_id = intval($args['post_id'] ?? 0);
         $post = $post_id ? get_post($post_id) : null;
         if (!$post) return self::err('post not found');
+        if (!Simple_MCP_Tools::can_read_post($post)) return Simple_MCP_Tools::err_cap('читання неопублікованого поста #' . $post_id);
         $blocks = parse_blocks($post->post_content);
         $out = [];
         $i = 0;
@@ -129,6 +130,7 @@ class Simple_MCP_Tools_Blocks {
     }
 
     static function list_block_fields($args) {
+        if (!current_user_can('edit_posts')) return Simple_MCP_Tools::err_cap('edit_posts');
         $bn = (string) ($args['block_name'] ?? '');
         if ($bn === '') return self::err('block_name required');
         if (strpos($bn, 'acf/') !== 0) $bn = 'acf/' . $bn;
@@ -173,6 +175,7 @@ class Simple_MCP_Tools_Blocks {
         $post_id = intval($args['post_id'] ?? 0);
         $post = $post_id ? get_post($post_id) : null;
         if (!$post) return self::err('post not found');
+        if (!Simple_MCP_Tools::can_edit_post($post_id)) return Simple_MCP_Tools::err_cap('edit_post #' . $post_id);
         $set = $args['set'] ?? null;
         if (!is_array($set) || !$set) return self::err('"set" object {field:value,...} required');
 
@@ -216,6 +219,7 @@ class Simple_MCP_Tools_Blocks {
         $post_id = intval($args['post_id'] ?? 0);
         $post = $post_id ? get_post($post_id) : null;
         if (!$post) return self::err('post not found');
+        if (!Simple_MCP_Tools::can_edit_post($post_id)) return Simple_MCP_Tools::err_cap('edit_post #' . $post_id);
         $spec = $args['block'] ?? null;
         if (!is_array($spec) || empty($spec['blockName'])) return self::err('"block" {blockName, data} required');
         $bb = self::build_block($spec);
@@ -240,6 +244,7 @@ class Simple_MCP_Tools_Blocks {
         $post_id = intval($args['post_id'] ?? 0);
         $post = $post_id ? get_post($post_id) : null;
         if (!$post) return self::err('post not found');
+        if (!Simple_MCP_Tools::can_edit_post($post_id)) return Simple_MCP_Tools::err_cap('edit_post #' . $post_id);
         $from = intval($args['from'] ?? -1);
         $to = intval($args['to'] ?? -1);
         $blocks = parse_blocks($post->post_content); // full array: keep freeform/classic segments
@@ -260,6 +265,7 @@ class Simple_MCP_Tools_Blocks {
         $post_id = intval($args['post_id'] ?? 0);
         $post = $post_id ? get_post($post_id) : null;
         if (!$post) return self::err('post not found');
+        if (!Simple_MCP_Tools::can_edit_post($post_id)) return Simple_MCP_Tools::err_cap('edit_post #' . $post_id);
         $blocks = parse_blocks($post->post_content);
         $raw = self::locate($blocks, (array) ($args['locator'] ?? []));
         if ($raw < 0) return self::err('target block not found');
@@ -274,6 +280,7 @@ class Simple_MCP_Tools_Blocks {
         $post_id = intval($args['post_id'] ?? 0);
         $post = $post_id ? get_post($post_id) : null;
         if (!$post) return self::err('post not found');
+        if (!Simple_MCP_Tools::can_edit_post($post_id)) return Simple_MCP_Tools::err_cap('edit_post #' . $post_id);
         $specs = $args['blocks'] ?? null;
         if (!is_array($specs)) return self::err('"blocks" array required');
         $content = [];

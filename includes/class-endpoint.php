@@ -131,20 +131,34 @@ class Simple_MCP_Endpoint {
         }
     }
 
-    /** Shown to the AI client at connect time (MCP `instructions`). Encodes the must-know rules. */
+    /**
+     * Shown to the AI client at connect time (MCP `instructions`). Encodes the must-know rules,
+     * personalized to the authenticated key owner: identity, role limits and enabled tool groups.
+     */
     static function instructions() {
-        $blocks  = Simple_MCP::module_on('blocks');
-        $ml      = Simple_MCP::module_on('wploc') ? Simple_MCP::multilingual_system() : null;
-        $content = Simple_MCP::module_on('content');
-
-        $server = Simple_MCP::opt('allow_server_ops', false);
+        $perms   = Simple_MCP_Auth::current_perms();
+        $blocks  = !empty($perms['blocks']);
+        $ml      = !empty($perms['wploc']) ? Simple_MCP::multilingual_system() : null;
+        $content = !empty($perms['content']);
+        $cli     = !empty($perms['wp_cli']);
+        $server  = !empty($perms['server_ops']);
 
         $r = [];
+        $u = wp_get_current_user();
+        if ($u && $u->ID) {
+            $roles = implode(', ', array_map('translate_user_role', array_map(function ($slug) {
+                return wp_roles()->roles[$slug]['name'] ?? $slug;
+            }, (array) $u->roles)));
+            $r[] = 'You are authenticated as WordPress user "' . $u->user_login . '" (role: ' . ($roles ?: '—') . '). Every operation runs under THIS user\'s native WordPress capabilities — you cannot read/edit/publish/delete anything this user could not in wp-admin, and capability-denied errors are expected behavior, not bugs. Tool groups this user\'s role is not granted are hidden from tools/list entirely.';
+        }
         $r[] = 'Simple MCP\'s main job is CONTENT (pages/blocks, ACF, media, taxonomies, translations). Theme & plugin CODE (editing PHP/JS/CSS files) is managed via git + CI/CD — never edit theme or plugin files here.';
+        if (!$cli) {
+            $r[] = 'Raw wp_cli is not available to this user (typed-only mode) — use the typed tools.';
+        }
         if ($server) {
             $r[] = 'Server ops ARE ENABLED on this site: you MAY edit wp-config directives and install/update/remove whole plugins or themes via wp_cli (config and the plugin set legitimately differ per environment — only the theme is versioned). ALWAYS confirm DESTRUCTIVE server ops with the user first: deleting ACF or another critical plugin, or changing security/DB config.';
-        } else {
-            $r[] = 'Server ops (wp-config directives, plugin/theme install/update/delete) are DISABLED on this site — those commands are blocked; ask the user to enable "Server ops" in the plugin settings if one is genuinely needed.';
+        } elseif ($cli) {
+            $r[] = 'Server ops (wp-config directives, plugin/theme install/update/delete) are DISABLED for this user — those commands are blocked; ask the site admin to grant "Server ops" to this user\'s role in Simple MCP settings if one is genuinely needed.';
         }
         if ($blocks) {
             $r[] = 'Page content is ACF-block data stored INLINE in post_content — never hand-write block-delimiter JSON; use block_get / list_block_fields / block_update.';
@@ -156,7 +170,10 @@ class Simple_MCP_Endpoint {
         if ($content) {
             $r[] = 'On an unfamiliar site call describe_site first to learn its blocks, fields, options, post types and languages (they differ per site).';
         }
-        $r[] = 'All content writes auto-create a revision and byte-verify (check content_verified:true). After edits, flush cache (wp_cli "cache flush" plus W3 Total Cache page flush) if a page cache is active. Prefer typed tools over raw wp_cli. When you do call wp_cli, pass argument values literally and quoted and NEVER JSON-encode text — non-ASCII gets \uXXXX-escaped and is stored verbatim (a Cyrillic title would be saved as the literal escape text, not the letters); for any write carrying human text (titles, excerpts, field values) use update_post / create_post / acf_update.';
+        $r[] = 'All content writes auto-create a revision and byte-verify (check content_verified:true). After edits, flush cache if a page cache is active.';
+        if ($cli) {
+            $r[] = 'Prefer typed tools over raw wp_cli. When you do call wp_cli, pass argument values literally and quoted and NEVER JSON-encode text — non-ASCII gets \uXXXX-escaped and is stored verbatim (a Cyrillic title would be saved as the literal escape text, not the letters); for any write carrying human text (titles, excerpts, field values) use update_post / create_post / acf_update. Flush page cache via wp_cli "cache flush" plus the W3 Total Cache flush when W3TC is active.';
+        }
         return implode(' ', $r);
     }
 
