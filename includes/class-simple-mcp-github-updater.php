@@ -73,7 +73,7 @@ class Simple_MCP_GitHub_Updater {
             'name'         => 'Simple MCP',
             'slug'         => $this->get_slug(),
             'version'      => $version,
-            'author'       => '<a href="https://vitaliikaplia.com/">Vitalii Kaplia</a>',
+            'author'       => '<a href="https://kaplia.pro/">Vitalii Kaplia</a>',
             'homepage'     => $this->get_repository_url(),
             'requires'     => '6.0',
             'requires_php' => '8.1',
