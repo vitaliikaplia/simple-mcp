@@ -92,6 +92,18 @@ values are stored **inline in `post_content`**, inside the block-delimiter JSON,
 - Each block also carries a shared **"block settings" group** (padding/margin/bg/anchor). Its
   `field_key`s **differ per fork** — that's fine, `block_update`/`list_block_fields` resolve
   them at runtime.
+- **Seamless clones.** Fields that reach a block through a seamless clone (a shared header or
+  buttons group) are stored under the field's **own** key, never the in-memory `<clone>_<field>` key
+  ACF uses while editing — that one does not resolve, and ACF silently drops the value. Since 2.4.0
+  the `block_*` tools write the right key, refuse a write whose new reference would not resolve, and
+  `block_update` repairs such references left in the edited block by older versions (returned as
+  `refs_repaired`). If a field shows in `block_get` but not on the page, its `_name` reference is
+  probably broken (`block_get` hides `_` keys; the raw reference is visible in `get_post` content):
+  run `block_update` on that block — re-setting a field's current value is enough — and it repairs
+  prefixed references and lists them in `refs_repaired`.
+- **Groups** are stored as an empty parent value plus its reference (`"video_files":""`,
+  `"_video_files":"field_…"`) and their sub-fields as `video_files_mp4` etc.; before 2.4.0
+  `block_update` dropped that parent value and the whole group vanished from the page.
 
 ### 2.2 The other ACF storage modes (don't conflate them)
 | Where | Storage | Read / Write |
@@ -129,6 +141,7 @@ read first with `wp_cli` `option get <key>`.
 2. list_block_fields {block_name}           → confirm field name & type (once per block type)
 3. block_update {post_id, locator:{index:N}, set:{field: newValue}}
                                              → check content_verified:true
+                                               (refs_repaired, if present, lists references it fixed)
 4. (if cached and wp_cli is available) wp_cli "cache flush" (+ W3TC page flush)
 ```
 Value shapes for `set`: scalars as-is; image/file = attachment ID; link = `{title,url,target}`;

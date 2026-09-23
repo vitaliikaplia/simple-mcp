@@ -10,7 +10,7 @@
 
 > Не для публікації. Для власних проєктів.
 
-Автор: [Vitalii Kaplia](https://kaplia.pro/) · Поточна версія: **2.3.0**.
+Автор: [Vitalii Kaplia](https://kaplia.pro/) · Поточна версія: **2.4.0**.
 
 ## Чому не готовий плагін
 
@@ -115,8 +115,8 @@ claude mcp add --transport http simple-mcp https://САЙТ/simple-mcp \
 | Інструмент | Призначення |
 |---|---|
 | `block_get` / `list_block_fields` | Читання блоків сторінки / схема полів блоку (з ACF-реєстру). |
-| `block_update` | Безпечна правка ACF-поля(ів) блоку (server-side flattener + field_key mirror + verify). |
-| `block_insert` / `block_move` / `block_remove` / `block_replace` | Структура сторінки з JSON-специфікацій. |
+| `block_update` | Безпечна правка ACF-поля(ів) блоку (server-side flattener + field_key mirror + verify). Поля з seamless-клонів пишуться під власним ключем; зламані старими версіями посилання в блоці лагодяться (`refs_repaired`); запис із нерезольвним посиланням відхиляється. |
+| `block_insert` / `block_move` / `block_remove` / `block_replace` | Структура сторінки з JSON-специфікацій (поля seamless-клонів пишуться під власним ключем; специфікацію з нерезольвним посиланням відхилено без запису). |
 
 **Мультимовність** (детект wp-loc/WPML)
 
@@ -208,8 +208,10 @@ claude mcp add --transport http simple-mcp https://САЙТ/simple-mcp \
 - Якщо версія на GitHub новіша за встановлену — з'являється звичайне «Доступне оновлення».
 - Пакет — zip гілки (`archive/refs/heads/<branch>.zip`); тека нормалізується під slug `simple-mcp`.
 - Щоб випустити оновлення: однаково підніми `Version:` у заголовку **і**
-  `SIMPLE_MCP_VERSION` у `simple-mcp.php`, онови changelog у README та в
-  `class-simple-mcp-github-updater.php`, перевір PHP lint і запуш у release-гілку.
+  `SIMPLE_MCP_VERSION` у `simple-mcp.php`, онови «Поточна версія» вгорі README і «Current release»
+  в `AGENTS.md`, changelog у README та в `class-simple-mcp-github-updater.php`, перевір PHP lint і
+  запуш у release-гілку. WordPress показує changelog УЖЕ встановленої копії, тож новий текст видно
+  після оновлення.
 
 Типова гілка — **`master`** (як у `wp-loc`). За потреби перевизначається константою
 `define('SIMPLE_MCP_GITHUB_BRANCH', '<гілка>');` у `wp-config.php`.
@@ -230,6 +232,27 @@ PHP **8.1+**, WordPress 6.0+, WP-CLI на сервері (для `wp_cli`) і д
 ACF-інструменти — за наявності ACF.
 
 ## Зміни
+
+### 2.4.0 — правильні ключі для полів із seamless-клонів
+
+- **Виправлено:** `block_update`, `block_insert` і `block_replace` писали для полів, що потрапляють у
+  блок через seamless-клон (спільна «шапка», група «Кнопки»), тимчасовий ключ ACF
+  `<ключ клона>_<ключ поля>` замість власного ключа поля. ACF такий ключ не знаходить і мовчки
+  відкидає значення на фронті — при цьому запис повертав `content_verified: true`. Тепер пишеться
+  `__key` (як це робить сам ACF), і `list_block_fields` показує саме його.
+- `block_update` лагодить такі зламані посилання в блоці, який редагує, і перелічує їх у
+  `refs_repaired`.
+- Запис, у якому нове посилання на поле не резолвиться в ACF, відхиляється з помилкою замість
+  мовчазного збереження.
+- **Виправлено (давня вада):** поле-група записувалось без порожнього батьківського значення, яке
+  зберігає ACF (`"video_files":""` поруч із `"_video_files"`), тож `block_update` групи видаляв його,
+  і `get_fields()` пропускав усю групу (наприклад, відео в медіа-блоці). Те саме — для клонів із
+  режимом «group»: тепер вони пишуться так, як їх зберігає ACF.
+
+### 2.3.1 — звірка описів із реалізацією
+
+- Селектор `comment_` додано в описи `acf_get`/`acf_update`, вирівняно опис плагіна й дефолти ролей
+  у README, уточнено, що підключення лише через локальний Claude Code CLI (не хмарний конектор claude.ai).
 
 ### 2.3.0 — технічний minor-реліз
 

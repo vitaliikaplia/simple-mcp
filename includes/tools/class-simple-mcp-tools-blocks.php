@@ -33,14 +33,14 @@ class Simple_MCP_Tools_Blocks {
                 'callback' => [__CLASS__, 'block_get'],
             ],
             'list_block_fields' => [
-                'description' => 'Return the ACF field schema (name, field_key, type, sub_fields, layouts, choices, default) for an ACF block, read from the ACF registry at runtime. Needed to know valid field names/types before block_update/block_replace, since remote clients cannot read theme acf-json. Includes the shared block-settings group (padding/margin/bg/anchor) whose keys differ per fork.',
+                'description' => 'Return the ACF field schema (name, key, type, sub_fields, layouts, choices, default) for an ACF block, read from the ACF registry at runtime. key is the storable field_key (for seamless-clone fields the field\'s own key, not the in-memory <clone>_<field> one). Needed to know valid field names/types before block_update/block_replace, since remote clients cannot read theme acf-json. Includes the shared block-settings group (padding/margin/bg/anchor) whose keys differ per fork.',
                 'inputSchema' => ['type' => 'object', 'additionalProperties' => false,
                     'properties' => ['block_name' => ['type' => 'string', 'description' => 'e.g. "acf/main-first-screen" or "main-first-screen"']],
                     'required' => ['block_name']],
                 'callback' => [__CLASS__, 'list_block_fields'],
             ],
             'block_update' => [
-                'description' => 'Safely edit one or more ACF fields of a single block instance in place. Give a locator (from block_get) and set:{field:value,...} using field NAMES (not keys). The server resolves field_keys, writes the _name=>field_key mirror, handles repeaters/groups/flexible via a recursive flattener, re-serializes with serialize_blocks, wp_slash-es and byte-verifies. This replaces fragile hand-editing of block-delimiter JSON. Values: scalars as-is; image/file = attachment ID; link = {title,url,target}; gallery = [ids]; repeater = [ {sub:val}, ... ]; group = {sub:val}; flexible = [ {acf_fc_layout:name, sub:val}, ... ].',
+                'description' => 'Safely edit one or more ACF fields of a single block instance in place. Give a locator (from block_get) and set:{field:value,...} using field NAMES (not keys). The server resolves field_keys, writes the _name=>field_key mirror, handles repeaters/groups/flexible via a recursive flattener, re-serializes with serialize_blocks, wp_slash-es and byte-verifies. Fields that come from a seamless clone (shared header/buttons groups) are stored under their OWN field_key, and references that older versions wrote as <clone>_<field> in the edited block are repaired (listed in refs_repaired). A write whose NEW field reference ACF cannot resolve is refused instead of saved; other unresolvable references already in the block that cannot be repaired are left as they are. This replaces fragile hand-editing of block-delimiter JSON. Values: scalars as-is; image/file = attachment ID; link = {title,url,target}; gallery = [ids]; repeater = [ {sub:val}, ... ]; group = {sub:val}; flexible = [ {acf_fc_layout:name, sub:val}, ... ].',
                 'inputSchema' => ['type' => 'object', 'additionalProperties' => false,
                     'properties' => [
                         'post_id' => ['type' => 'integer'],
@@ -51,7 +51,7 @@ class Simple_MCP_Tools_Blocks {
                 'callback' => [__CLASS__, 'block_update'],
             ],
             'block_insert' => [
-                'description' => 'Insert a new block built from a spec {blockName, data:{field:value,...}} at a position (integer index among top-level blocks, or "end"). Server builds valid ACF block data (flattener + field_key mirror) — no raw markup needed.',
+                'description' => 'Insert a new block built from a spec {blockName, data:{field:value,...}} at a position (integer index among top-level blocks, or "end"). Server builds valid ACF block data (flattener + field_key mirror) — no raw markup needed. Seamless-clone fields are stored under their own field_key; a spec whose field reference ACF cannot resolve is refused (nothing is written).',
                 'inputSchema' => ['type' => 'object', 'additionalProperties' => false,
                     'properties' => [
                         'post_id'  => ['type' => 'integer'],
@@ -76,7 +76,7 @@ class Simple_MCP_Tools_Blocks {
                 'callback' => [__CLASS__, 'block_remove'],
             ],
             'block_replace' => [
-                'description' => 'Replace the ENTIRE post body with a new list of blocks built from specs [{blockName, data:{...}, innerBlocks?}]. Use to compose a page from scratch. Destructive to existing body — auto-revision keeps a rollback point; prefer block_update/insert for edits.',
+                'description' => 'Replace the ENTIRE post body with a new list of blocks built from specs [{blockName, data:{...}, innerBlocks?}]. Use to compose a page from scratch. Destructive to existing body — auto-revision keeps a rollback point; prefer block_update/insert for edits. Seamless-clone fields are stored under their own field_key; a spec whose field reference ACF cannot resolve is refused (nothing is written).',
                 'inputSchema' => ['type' => 'object', 'additionalProperties' => false,
                     'properties' => ['post_id' => ['type' => 'integer'], 'blocks' => ['type' => 'array', 'items' => ['type' => 'object']]],
                     'required' => ['post_id', 'blocks']],
@@ -152,7 +152,9 @@ class Simple_MCP_Tools_Blocks {
         foreach ((array) $fields as $f) {
             if (in_array($f['type'] ?? '', $skip, true)) continue;
             if (($f['name'] ?? '') === '') continue;
-            $e = ['name' => $f['name'], 'key' => $f['key'], 'type' => $f['type']];
+            // storable key: a field that reaches the group through a seamless clone carries a
+            // temporary "<clone>_<field>" key in memory; the real one is in __key (see flatten()).
+            $e = ['name' => $f['name'], 'key' => self::field_ref($f), 'type' => $f['type']];
             if (!empty($f['label']))    $e['label']    = $f['label'];
             if (!empty($f['required'])) $e['required'] = true;
             if (isset($f['default_value']) && $f['default_value'] !== '' && $f['default_value'] !== null) $e['default'] = $f['default_value'];
@@ -204,15 +206,21 @@ class Simple_MCP_Tools_Blocks {
             }
             $nf = [];
             self::flatten([$defs[$fname]], [$fname => $fval], '', $nf);
+            self::assert_refs_resolve($nf, $bn); // never save a value ACF would silently drop
             foreach ($nf as $k => $v) $data[$k] = $v;
             $applied[] = $fname;
         }
         if ($unknown) return self::err('unknown field(s) on ' . $bn . ': ' . implode(', ', $unknown) . ' — use list_block_fields');
 
+        // Heal references in this block that earlier versions of this tool broke (<clone>_<field>).
+        $repaired = self::repair_refs($data);
+
         $blocks[$raw]['attrs']['data'] = $data;
         $verified = Simple_MCP_Tools::save_post_content($post_id, serialize_blocks($blocks));
         if (is_wp_error($verified)) return self::err($verified->get_error_message());
-        return self::ok(['post_id' => $post_id, 'blockName' => $bn, 'fields_updated' => $applied, 'content_verified' => $verified]);
+        $out = ['post_id' => $post_id, 'blockName' => $bn, 'fields_updated' => $applied, 'content_verified' => $verified];
+        if ($repaired) $out['refs_repaired'] = $repaired;
+        return self::ok($out);
     }
 
     static function block_insert($args) {
@@ -387,6 +395,7 @@ class Simple_MCP_Tools_Blocks {
         if ($isACF) {
             $flat = [];
             self::flatten(array_values(self::block_field_defs($bn)), (array) ($spec['data'] ?? []), '', $flat);
+            self::assert_refs_resolve($flat, $bn);
             $attrs['data'] = $flat;
         } elseif (isset($spec['attrs']) && is_array($spec['attrs'])) {
             $attrs = array_merge($attrs, $spec['attrs']); // core blocks: pass through attrs
@@ -425,7 +434,7 @@ class Simple_MCP_Tools_Blocks {
             if (!array_key_exists($name, $values)) continue;
             $val = $values[$name];
             $fk = $prefix === '' ? $name : $prefix . '_' . $name;
-            $key = $f['key'];
+            $key = self::field_ref($f);
 
             if ($type === 'repeater') {
                 if ($val !== null && $val !== [] && (!is_array($val) || !array_is_list($val))) {
@@ -438,8 +447,20 @@ class Simple_MCP_Tools_Blocks {
                     self::flatten($f['sub_fields'] ?? [], is_array($row) ? $row : [], $fk . '_' . $i, $flat);
                 }
             } elseif ($type === 'group') {
+                // ACF stores a group as an EMPTY parent value next to its reference ("video_files":""
+                // + "_video_files":"field_…"); get_fields() walks the meta keys, so without the
+                // parent value the whole group is skipped on the front end.
+                $flat[$fk] = '';
                 $flat['_' . $fk] = $key;
                 self::flatten($f['sub_fields'] ?? [], is_array($val) ? $val : [], $fk, $flat);
+            } elseif ($type === 'clone') {
+                // A clone with display "group" (seamless clones are already expanded by
+                // acf_get_fields). ACF stores the clone as an empty parent value + reference, and
+                // its sub-fields FLAT beside it, under their own names (prefixed only when
+                // prefix_name is on, which the sub-field names already carry).
+                $flat[$fk] = '';
+                $flat['_' . $fk] = $key;
+                self::flatten($f['sub_fields'] ?? [], is_array($val) ? $val : [], $prefix, $flat);
             } elseif ($type === 'flexible_content') {
                 if ($val !== null && $val !== [] && (!is_array($val) || !array_is_list($val))) {
                     throw new \InvalidArgumentException("Field '$fk' (flexible_content) expects a LIST of layout rows, each with an acf_fc_layout key.");
@@ -465,6 +486,61 @@ class Simple_MCP_Tools_Blocks {
         }
     }
 
+    /**
+     * The field key to store in the "_name" reference.
+     *
+     * acf_get_fields() expands a SEAMLESS clone into the cloned fields and gives each one a
+     * temporary key "<clone key>_<field key>" (so sub clones load the right values); the real key
+     * is kept in __key, and ACF restores it via acf/prepare_field when it renders the input, so
+     * the editor posts and saves the real key. That
+     * temporary key does not resolve through acf_get_field(), so storing it made ACF drop the
+     * value on the front end while the write still reported content_verified. Always store __key.
+     */
+    static function field_ref($f) {
+        return (string) (!empty($f['__key']) ? $f['__key'] : ($f['key'] ?? ''));
+    }
+
+    /** Throw if any "_name" reference in freshly built block data does not resolve in ACF. */
+    static function assert_refs_resolve($flat, $bn) {
+        if (!function_exists('acf_get_field')) return;
+        $bad = [];
+        foreach ($flat as $k => $v) {
+            if (is_string($k) && $k !== '' && $k[0] === '_' && is_string($v) && $v !== '' && !acf_get_field($v)) $bad[] = "$k=$v";
+        }
+        if ($bad) {
+            throw new \RuntimeException('Refusing to write ' . $bn . ': ACF cannot resolve field reference(s) ' . implode(', ', $bad) . ' — the value would be silently dropped on the front end.');
+        }
+    }
+
+    /**
+     * Repair "<clone key>_<field key>" references that earlier versions of block_update wrote for
+     * seamless-clone fields: when the stored reference does not resolve, try every "_field_"
+     * boundary and take the first tail that resolves to a field whose name matches the stored
+     * name (or its last segment for repeater rows: buttons_0_link → link). Returns the list of
+     * repaired "_name" keys; healthy references are never touched (cheap gate first).
+     */
+    static function repair_refs(&$data) {
+        if (!function_exists('acf_get_field') || !is_array($data)) return [];
+        $fixed = [];
+        foreach ($data as $k => $v) {
+            if (!is_string($k) || $k === '' || $k[0] !== '_' || !is_string($v)) continue;
+            if (strpos($v, 'field_') !== 0 || strpos($v, '_field_', 6) === false || acf_get_field($v)) continue;
+            $name = substr($k, 1);
+            $off = 6;
+            while (($pos = strpos($v, '_field_', $off)) !== false) {
+                $cand = substr($v, $pos + 1);
+                $f = acf_get_field($cand);
+                if ($f && !empty($f['name']) && ($name === $f['name'] || substr($name, -(strlen($f['name']) + 1)) === '_' . $f['name'])) {
+                    $data[$k] = $cand;
+                    $fixed[] = $k;
+                    break;
+                }
+                $off = $pos + 1;
+            }
+        }
+        return $fixed;
+    }
+
     /** Collect the exact existing flat keys that belong to a field (for precise replace). */
     static function collect_field_keys($f, $data, $prefix, &$keys) {
         $type = $f['type'] ?? '';
@@ -480,6 +556,8 @@ class Simple_MCP_Tools_Blocks {
             }
         } elseif ($type === 'group') {
             foreach ($f['sub_fields'] ?? [] as $sf) self::collect_field_keys($sf, $data, $fk, $keys);
+        } elseif ($type === 'clone') {
+            foreach ($f['sub_fields'] ?? [] as $sf) self::collect_field_keys($sf, $data, $prefix, $keys);
         } elseif ($type === 'flexible_content') {
             $rows = (isset($data[$fk]) && is_array($data[$fk])) ? $data[$fk] : [];
             foreach ($rows as $i => $ln) {

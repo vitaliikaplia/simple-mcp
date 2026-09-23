@@ -58,10 +58,24 @@ Confirm destructive ones with the user.
 
 ## Release/documentation sync
 
-Current release: **2.3.0**. Canonical author URL: **https://kaplia.pro/**. For a release, keep
-the `Version:` header and `SIMPLE_MCP_VERSION` in `simple-mcp.php` identical; also update the
-README changelog and the updater's WordPress-visible changelog. The updater reads the header,
-while runtime migrations and MCP `serverInfo` use the constant.
+Current release: **2.4.0**. Canonical author URL: **https://kaplia.pro/**. For a release, keep
+the `Version:` header and `SIMPLE_MCP_VERSION` in `simple-mcp.php` identical; also update this
+“Current release” line, README's «Поточна версія», the README changelog and the updater's
+WordPress-visible changelog (note: WordPress renders the INSTALLED copy's changelog, so the new text
+shows only after the update is installed). The updater reads the header from GitHub `master`, while
+runtime migrations and MCP `serverInfo` use the constant.
+
+## ACF field keys in block data
+`acf_get_fields()` expands a **seamless clone** into the cloned fields and gives each one a
+temporary in-memory key `<clone key>_<field key>`; the real key sits in `__key` (ACF restores it via
+`acf/prepare_field` when it renders the field input, so the editor posts and saves the real key). Block data must store the real key — the temporary one does not
+resolve through `acf_get_field()`, so ACF silently drops the value on the front end. The blocks module
+therefore writes `field_ref($f)` (`__key` when present), `list_block_fields` reports that same key,
+`assert_refs_resolve()` refuses a write whose new references do not resolve, and `block_update`
+repairs `<clone>_<field>` references left in the edited block by versions before 2.4.0
+(`refs_repaired` in the result). Groups and display-"group" clones are stored the way ACF stores them:
+an empty parent value plus its reference (`"video_files":""`, `"_video_files":"field_…"`); without the
+parent value `get_fields()` skips the whole group.
 
 ## Adding a tool
 Create/extend a module in `includes/tools/`, add an entry to its `defs()` (name → description,
