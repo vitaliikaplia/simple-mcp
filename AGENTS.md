@@ -74,7 +74,7 @@ Confirm destructive ones with the user.
 
 ## Release/documentation sync
 
-Current release: **2.5.1**. Canonical author URL: **https://kaplia.pro/**. For a release: keep
+Current release: **2.5.2**. Canonical author URL: **https://kaplia.pro/**. For a release: keep
 the `Version:` header and `SIMPLE_MCP_VERSION` in `simple-mcp.php` identical; update this
 “Current release” line, README's «Поточна версія» and add the new top README changelog entry
 `### X.Y.Z — <title>` under `## Зміни` (it becomes the GitHub release notes and the WordPress

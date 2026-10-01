@@ -88,6 +88,32 @@ class Simple_MCP_User_Keys {
             );
         };
         ?>
+        <style>
+            /* Вкладена таблиця в .form-table профілю: скасовуємо стилі .form-table th/td
+               (ширина 200px, асиметричні відступи, блочні комірки на мобільному). */
+            .form-table .simple-mcp-keys-wrap { max-width: 900px; overflow-x: auto; }
+            .form-table .simple-mcp-keys { margin: 0; }
+            .form-table .simple-mcp-keys th,
+            .form-table .simple-mcp-keys td { display: table-cell; width: auto; padding: 10px 12px; margin: 0;
+                line-height: 1.5; font-size: 13px; vertical-align: middle; text-align: left; }
+            .form-table .simple-mcp-keys thead th { font-weight: 600; white-space: nowrap; }
+            .form-table .simple-mcp-keys .simple-mcp-key-meta { display: block; margin-top: 2px; color: #757575; font-size: 12px; }
+            .form-table .simple-mcp-keys .simple-mcp-key-meta code { font-size: 11px; padding: 1px 4px; }
+            .form-table .simple-mcp-keys .simple-mcp-key-muted { color: #8c8f94; }
+            .form-table .simple-mcp-keys .simple-mcp-key-actions { text-align: right; white-space: nowrap; width: 1%; }
+            /* Мобільний: кожен ключ — картка з підписами полів (як списки WordPress), без прокрутки */
+            @media screen and (max-width: 782px) {
+                .form-table .simple-mcp-keys thead { display: none; }
+                .form-table .simple-mcp-keys,
+                .form-table .simple-mcp-keys tbody,
+                .form-table .simple-mcp-keys tr { display: block; width: 100%; box-sizing: border-box; }
+                .form-table .simple-mcp-keys tr { padding: 8px 0; border-bottom: 1px solid #c3c4c7; }
+                .form-table .simple-mcp-keys tr:last-child { border-bottom: 0; }
+                .form-table .simple-mcp-keys td { display: block; padding: 3px 12px; }
+                .form-table .simple-mcp-keys td[data-label]::before { content: attr(data-label) ": "; font-weight: 600; color: #50575e; }
+                .form-table .simple-mcp-keys .simple-mcp-key-actions { text-align: left; width: auto; padding-top: 8px; }
+            }
+        </style>
         <h2 id="simple-mcp">Simple MCP — ключі доступу</h2>
         <table class="form-table" role="presentation">
             <tr>
@@ -136,30 +162,31 @@ class Simple_MCP_User_Keys {
                 <th scope="row">Ключі</th>
                 <td>
                     <?php if ($keys): ?>
-                        <table class="widefat striped" style="max-width:900px">
-                            <thead><tr><th>Назва</th><th>Створено</th><th>Ким</th><th>Останнє використання</th><th></th></tr></thead>
+                        <div class="simple-mcp-keys-wrap">
+                        <table class="widefat striped simple-mcp-keys">
+                            <thead><tr><th scope="col">Назва</th><th scope="col">Створено</th><th scope="col">Ким</th><th scope="col">Останнє використання</th><th scope="col" class="simple-mcp-key-actions"><span class="screen-reader-text">Дії</span></th></tr></thead>
                             <tbody>
                             <?php foreach ($keys as $k): ?>
                                 <tr>
-                                    <td><strong><?php echo esc_html($k['name']); ?></strong>
-                                        <br><span style="color:#777;font-size:11px">id <code><?php echo esc_html($k['id']); ?></code></span></td>
-                                    <td><?php echo esc_html(self::fmt_time($k['created']) ?: '—'); ?></td>
-                                    <td><?php
+                                    <td class="simple-mcp-key-name"><strong><?php echo esc_html($k['name']); ?></strong>
+                                        <span class="simple-mcp-key-meta">id <code><?php echo esc_html($k['id']); ?></code></span></td>
+                                    <td data-label="Створено"><?php echo esc_html(self::fmt_time($k['created']) ?: '—'); ?></td>
+                                    <td data-label="Ким"><?php
                                         if ($k['legacy']) {
-                                            echo '<span style="color:#999">—</span>';
+                                            echo '<span class="simple-mcp-key-muted">—</span>';
                                         } elseif ((int) $k['created_by'] === (int) $user->ID) {
                                             echo 'власник';
                                         } else {
                                             echo esc_html(self::user_label($k['created_by']));
                                         }
                                     ?></td>
-                                    <td><?php if ($k['last_used']): ?>
+                                    <td data-label="Останнє використання"><?php if ($k['last_used']): ?>
                                             <?php echo esc_html(self::fmt_time($k['last_used'])); ?>
-                                            <?php if ($k['last_ip'] !== ''): ?><br><span style="color:#777;font-size:11px"><?php echo esc_html($k['last_ip']); ?></span><?php endif; ?>
+                                            <?php if ($k['last_ip'] !== ''): ?><span class="simple-mcp-key-meta"><?php echo esc_html($k['last_ip']); ?></span><?php endif; ?>
                                         <?php else: ?>
-                                            <span style="color:#999">ще не використовувався<?php echo $k['legacy'] ? ' (з 2.5.0)' : ''; ?></span>
+                                            <span class="simple-mcp-key-muted">ще не використовувався<?php echo $k['legacy'] ? ' (з 2.5.0)' : ''; ?></span>
                                         <?php endif; ?></td>
-                                    <td style="text-align:right">
+                                    <td class="simple-mcp-key-actions">
                                         <a class="button button-link-delete" href="<?php echo esc_url($revoke_url($k['id'])); ?>"
                                            onclick="return confirm(<?php echo esc_attr(wp_json_encode('Відкликати ключ «' . $k['name'] . '»? Клієнти, що ним підключені, перестануть працювати.')); ?>)">Відкликати</a>
                                     </td>
@@ -167,6 +194,7 @@ class Simple_MCP_User_Keys {
                             <?php endforeach; ?>
                             </tbody>
                         </table>
+                        </div>
                         <?php if (count($keys) > 1): ?>
                             <p style="margin:8px 0 0"><a class="button-link-delete" href="<?php echo esc_url($revoke_url('')); ?>"
                                   onclick="return confirm('Відкликати ВСІ ключі цього користувача?')">Відкликати всі</a></p>

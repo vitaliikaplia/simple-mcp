@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Simple MCP
  * Description: Приватний MCP-сервер для WordPress: власний ендпоінт поза REST API, персональні ключі з дзеркаленням ролей/прав WordPress, WP-CLI для адмінів (deny-list) + безпечні типізовані інструменти для контенту, Gutenberg-блоків, ACF, медіа та мультимовності.
- * Version: 2.5.1
+ * Version: 2.5.2
  * Author: Vitalii Kaplia
  * Author URI: https://kaplia.pro/
  * Requires at least: 6.0
@@ -16,7 +16,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('SIMPLE_MCP_VERSION', '2.5.1');
+define('SIMPLE_MCP_VERSION', '2.5.2');
 define('SIMPLE_MCP_FILE', __FILE__);
 define('SIMPLE_MCP_DIR', plugin_dir_path(__FILE__));
 define('SIMPLE_MCP_URL', plugin_dir_url(__FILE__));
