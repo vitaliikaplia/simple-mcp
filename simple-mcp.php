@@ -2,11 +2,13 @@
 /**
  * Plugin Name: Simple MCP
  * Description: Приватний MCP-сервер для WordPress: власний ендпоінт поза REST API, персональні ключі з дзеркаленням ролей/прав WordPress, WP-CLI для адмінів (deny-list) + безпечні типізовані інструменти для контенту, Gutenberg-блоків, ACF, медіа та мультимовності.
- * Version: 2.4.0
+ * Version: 2.5.0
  * Author: Vitalii Kaplia
  * Author URI: https://kaplia.pro/
  * Requires at least: 6.0
  * Requires PHP: 8.1
+ * Tested up to: 7.0
+ * Update URI: https://github.com/vitaliikaplia/simple-mcp
  * License: GPL-2.0-or-later
  *
  * Приватний плагін — не для публікації. Використовується для власних проєктів.
@@ -14,18 +16,19 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('SIMPLE_MCP_VERSION', '2.4.0');
+define('SIMPLE_MCP_VERSION', '2.5.0');
 define('SIMPLE_MCP_FILE', __FILE__);
 define('SIMPLE_MCP_DIR', plugin_dir_path(__FILE__));
 define('SIMPLE_MCP_URL', plugin_dir_url(__FILE__));
 define('SIMPLE_MCP_BASENAME', plugin_basename(__FILE__));
-// Гілку авто-оновлення можна перевизначити в wp-config.php
+// Гілка dev-каналу авто-оновлення (SIMPLE_MCP_UPDATE_CHANNEL = 'branch'); можна перевизначити в wp-config.php
 if (!defined('SIMPLE_MCP_GITHUB_BRANCH')) define('SIMPLE_MCP_GITHUB_BRANCH', 'master');
 
 require_once SIMPLE_MCP_DIR . 'includes/class-simple-mcp.php';
 require_once SIMPLE_MCP_DIR . 'includes/class-auth.php';
 require_once SIMPLE_MCP_DIR . 'includes/class-audit.php';
 require_once SIMPLE_MCP_DIR . 'includes/class-tools.php';
+require_once SIMPLE_MCP_DIR . 'includes/class-simple-mcp-cli.php';
 require_once SIMPLE_MCP_DIR . 'includes/class-endpoint.php';
 require_once SIMPLE_MCP_DIR . 'includes/class-admin.php';
 require_once SIMPLE_MCP_DIR . 'includes/class-user-keys.php';

@@ -1,0 +1,9 @@
+# Development-only files stay out of release zips (git archive) and GitHub source archives.
+/.github            export-ignore
+/tests              export-ignore
+/bin                export-ignore
+/.gitattributes     export-ignore
+/.gitignore         export-ignore
+/.idea              export-ignore
+/REVIEW-*.md        export-ignore
+/docs/REVIEW-*.md   export-ignore
