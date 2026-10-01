@@ -271,8 +271,9 @@ off. The result reports the real outcome and which siblings still exist.
 - **Hosting (when calling the endpoint yourself for testing).** Some WAFs (Imunify/ModSecurity)
   block scripting User-Agents like `python-urllib` with a 403 — send a browser-like UA. On
   shared hosting, `wp_cli` needs the correct `php`/`wp` binary paths configured and
-  `proc_open` enabled; `open_basedir` can block auto-detection of out-of-basedir binaries, so
-  set the php/wp paths explicitly in the plugin settings.
+  `proc_open` enabled. Under `open_basedir` the plugin verifies out-of-basedir php/wp paths by a
+  probe run; if auto-detection still picks the wrong php, set the paths in the plugin settings
+  (or the `SIMPLE_MCP_PHP_BIN` / `SIMPLE_MCP_WP_BIN` constants).
 - **Wrong-language edit.** Because each language is a separate ID, always resolve with
   `wploc_get_translations` first, or you'll edit the wrong post.
 

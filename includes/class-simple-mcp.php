@@ -237,22 +237,87 @@ class Simple_MCP {
      * Чи придатний шлях з НАЛАШТУВАНЬ (БД) для бінарника $kind ('wp' | 'php'): абсолютний, без
      * керівних символів, ім'я файлу саме php/wp (php, php8.3, php83, php-8.3; wp, wp-cli, wp-cli.phar),
      * існує як файл; php — виконуваний, wp — читабельний (phar запускаємо через php).
+     * Під open_basedir (хостинг) PHP сайту не бачить /usr/local/... — is_file() бреше, хоча дочірній
+     * процес ці файли запускає; тоді шлях перевіряється пробним запуском (php → «cli X.Y»,
+     * wp → «WP-CLI X»), результат кешується. $fresh — без кешу (збереження налаштувань);
+     * $php — яким php перевіряти wp (щойно введений у налаштуваннях, ще не збережений).
      * Так значення з БД ніколи не запустить довільний бінарник (/bin/sh тощо).
      */
-    static function bin_path_valid($kind, $path) {
+    static function bin_path_valid($kind, $path, $fresh = false, $php = null) {
         $path = (string) $path;
         if ($path === '' || strlen($path) > 1024 || preg_match('/[\x00-\x1f\x7f]/', $path)) return false;
         if (!preg_match('#^(/|[A-Za-z]:[\\\\/])#', $path)) return false;
         $name = basename(str_replace('\\', '/', $path));
         if ($kind === 'php') {
             if (!preg_match('/^php(-?\d+(\.\d+)*)?(-cli)?(\.exe)?$/i', $name)) return false;
-            return @is_file($path) && @is_executable($path);
-        }
-        if ($kind === 'wp') {
+            if (@is_file($path)) return @is_executable($path);
+        } elseif ($kind === 'wp') {
             if (!preg_match('/^wp(-cli)?(\.phar|\.bat)?$/i', $name)) return false;
-            return @is_file($path) && @is_readable($path);
+            if (@is_file($path)) return @is_readable($path);
+        } else {
+            return false;
         }
-        return false;
+        if (!ini_get('open_basedir')) return false; // файлу справді немає
+        return self::bin_probe_cached($kind, $path, $fresh, $php);
+    }
+
+    /** Пробний запуск бінарника, якого не видно через open_basedir. Кеш: доба — вдалий, 10 хв — ні. */
+    static function bin_probe_cached($kind, $path, $fresh = false, $php = null) {
+        $key = 'simple_mcp_binok_' . md5($kind . '|' . $path . '|' . PHP_VERSION);
+        if (!$fresh) {
+            $c = get_transient($key);
+            if (is_array($c) && isset($c['ok'])) return (bool) $c['ok'];
+        }
+        $ok = $kind === 'php' ? self::php_probe($path) !== null : self::wp_probe($path, $php);
+        set_transient($key, ['ok' => $ok], $ok ? DAY_IN_SECONDS : 10 * MINUTE_IN_SECONDS);
+        return $ok;
+    }
+
+    /**
+     * Чи це WP-CLI: "wp --version" → рядок "WP-CLI X" (спершу через обраний php — так його й
+     * запускатиме wp_cli_argv(), потім напряму — для shell-обгорток). Без глобального конфігу,
+     * пакетів і кешу.
+     */
+    static function wp_probe($wp, $php = null) {
+        $php = $php !== null && $php !== '' ? (string) $php : self::php_bin();
+        if (self::wp_runs_via_php($wp, $php)) return true;
+        $r = self::run_shell([$wp, '--version'], null, 20, self::probe_env($php), 4096);
+        return $r['code'] === 0 && (bool) preg_match('/^WP-CLI \d/m', $r['stdout']);
+    }
+
+    /**
+     * Чи запускається $wp як PHP-скрипт/phar через $php (кеш: доба — так, 10 хв — ні). Потрібно під
+     * open_basedir, коли файл wp не прочитати й is_php_script() не бачить його shebang: прямий запуск
+     * через "env php" друкував би PHP-нотиси (deprecations) у stdout команд.
+     */
+    static function wp_runs_via_php($wp, $php = null) {
+        $php = $php !== null && $php !== '' ? (string) $php : self::php_bin();
+        $key = 'simple_mcp_wpphp_' . md5($wp . '|' . $php . '|' . PHP_VERSION);
+        $c   = get_transient($key);
+        if (is_array($c) && isset($c['ok'])) return (bool) $c['ok'];
+        $r  = self::run_shell(
+            [$php, '-d', 'display_errors=stderr', '-d', 'error_reporting=E_ALL & ~E_DEPRECATED', $wp, '--version'],
+            null, 20, self::probe_env($php), 4096
+        );
+        $ok = $r['code'] === 0 && (bool) preg_match('/^WP-CLI \d/m', $r['stdout']);
+        set_transient($key, ['ok' => $ok], $ok ? DAY_IN_SECONDS : 10 * MINUTE_IN_SECONDS);
+        return $ok;
+    }
+
+    /** Мінімальне середовище для пробних запусків WP-CLI (php першим у PATH, без конфігу/пакетів/кешу). */
+    private static function probe_env($php) {
+        $path = '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin';
+        if (strpos((string) $php, '/') !== false) $path = dirname((string) $php) . ':' . $path;
+        return [
+            'PATH'                             => $path,
+            'HOME'                             => sys_get_temp_dir(),
+            'WP_CLI_PHP'                       => (string) $php,
+            'WP_CLI_CONFIG_PATH'               => '/dev/null',
+            'WP_CLI_PACKAGES_DIR'              => '/dev/null',
+            'WP_CLI_CACHE_DIR'                 => '/dev/null',
+            'WP_CLI_DISABLE_AUTO_CHECK_UPDATE' => '1',
+            'LANG'                             => 'C',
+        ];
     }
 
     /** Звідки береться бінарник $kind: константа wp-config > валідний шлях з налаштувань > автовизначення. */
@@ -277,11 +342,25 @@ class Simple_MCP {
         foreach (explode(PATH_SEPARATOR, (string) getenv('PATH')) as $d) {
             if ($d !== '') $dirs[] = $d;
         }
+        $cands = [];
         foreach (array_unique($dirs) as $d) {
             foreach (['wp', 'wp-cli', 'wp-cli.phar'] as $n) {
                 $p = rtrim($d, '/') . '/' . $n;
                 if (@is_file($p) && @is_readable($p)) return $p;
+                $cands[] = $p;
             }
+        }
+        // Під open_basedir is_file() не бачить системних шляхів — шукаємо пробним запуском (з кешем)
+        if (ini_get('open_basedir')) {
+            $sig = md5(implode('|', $cands) . '|' . $php . '|' . SIMPLE_MCP_VERSION);
+            $c   = get_transient('simple_mcp_wp_bin');
+            if (is_array($c) && ($c['sig'] ?? '') === $sig) return (string) $c['path'];
+            $found = 'wp';
+            foreach ($cands as $p) {
+                if (self::wp_probe($p)) { $found = $p; break; }
+            }
+            set_transient('simple_mcp_wp_bin', ['sig' => $sig, 'path' => $found], $found !== 'wp' ? DAY_IN_SECONDS : HOUR_IN_SECONDS);
+            return $found;
         }
         return 'wp';
     }
@@ -304,7 +383,7 @@ class Simple_MCP {
     /** Автовизначення CLI-php (кеш: транзієнт simple_mcp_php_bin; ключ — PHP_BINARY + PHP_VERSION). */
     static function php_detect() {
         $want = PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION;
-        $sig  = md5(PHP_BINARY . '|' . PHP_VERSION);
+        $sig  = md5(PHP_BINARY . '|' . PHP_VERSION . '|' . SIMPLE_MCP_VERSION); // нова версія плагіна — новий пошук
         $c    = get_transient('simple_mcp_php_bin');
         $stat = !ini_get('open_basedir'); // під open_basedir is_file() бреше — тоді лише пробний запуск
         if (is_array($c) && ($c['sig'] ?? '') === $sig && !empty($c['path'])
@@ -526,12 +605,15 @@ class Simple_MCP {
         return array_merge([$wp], $args);
     }
 
-    /** Чи файл — PHP-скрипт/phar (shebang з php, "<?php" або .phar). Нечитабельний — false (запуск напряму). */
+    /**
+     * Чи файл — PHP-скрипт/phar (shebang з php, "<?php" або .phar). Нечитабельний: під open_basedir —
+     * пробний запуск через php (wp_runs_via_php), інакше false (запуск напряму).
+     */
     static function is_php_script($path) {
         if (strpos($path, '/') === false && strpos($path, '\\') === false) return false;
         if (preg_match('/\.phar$/i', $path)) return true;
         $h = @fopen($path, 'rb');
-        if (!$h) return false;
+        if (!$h) return ini_get('open_basedir') ? self::wp_runs_via_php($path) : false;
         $head = (string) fread($h, 256);
         fclose($h);
         if (strncmp($head, '<?php', 5) === 0) return true;
@@ -543,8 +625,8 @@ class Simple_MCP {
     }
 
     /**
-     * Запуск процесу (argv без шелла) з таймаутом. stdin — /dev/null (промпти й читання stdin
-     * одразу отримують EOF). $max_bytes > 0 — ліміт захопленого виводу на потік: решту дочитуємо
+     * Запуск процесу (argv без шелла) з таймаутом. stdin — одразу закритий pipe (промпти й читання
+     * stdin отримують EOF, як із /dev/null). $max_bytes > 0 — ліміт захопленого виводу на потік: решту дочитуємо
      * й відкидаємо (процес не блокується на повному pipe і не вбивається посеред запису).
      * Повертає ['code', 'stdout', 'stderr', 'timed_out', 'stdout_bytes', 'stderr_bytes',
      * 'stdout_truncated', 'stderr_truncated'].
@@ -558,14 +640,18 @@ class Simple_MCP {
             $res['stderr'] = 'proc_open вимкнено на цьому сервері';
             return $res;
         }
-        $null  = DIRECTORY_SEPARATOR === '\\' ? 'NUL' : '/dev/null';
-        $desc  = [0 => ['file', $null, 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+        // stdin — pipe, який одразу закриваємо (EOF), а НЕ ['file', '/dev/null']: файловий дескриптор
+        // proc_open відкриває в процесі PHP, і під open_basedir (типово на хостингу) /dev/null поза
+        // дозволеними шляхами — proc_open падав, і не працював ні wp_cli, ні пошук php.
+        $desc  = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
         $pipes = [];
         $proc  = @proc_open($cmd, $desc, $pipes, $cwd, $env);
         if (!is_resource($proc)) {
-            $res['stderr'] = 'не вдалося запустити процес';
+            $err = error_get_last();
+            $res['stderr'] = 'не вдалося запустити процес' . (!empty($err['message']) ? ': ' . $err['message'] : '');
             return $res;
         }
+        fclose($pipes[0]);
         $streams = ['stdout' => $pipes[1], 'stderr' => $pipes[2]];
         foreach ($streams as $s) stream_set_blocking($s, false);
 

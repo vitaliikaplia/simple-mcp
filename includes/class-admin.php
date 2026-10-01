@@ -73,15 +73,20 @@ class Simple_MCP_Admin {
 
         // Шляхи до бінарників: константа wp-config має пріоритет (поле вимкнене й не постить —
         // лишаємо збережене); невалідний шлях (не php/wp, не існує, не абсолютний) не зберігаємо.
+        // Під open_basedir (хостинг) файли поза сайтом не видно — тоді перевіряє пробний запуск,
+        // тож спершу php (ним же перевіряємо щойно введений wp).
         $rejected = [];
-        foreach (['wp' => 'wp_bin', 'php' => 'php_bin'] as $kind => $key) {
+        $php_new  = null;
+        foreach (['php' => 'php_bin', 'wp' => 'wp_bin'] as $kind => $key) {
             if (self::bin_const($kind) !== '') continue;
             $val = trim(sanitize_text_field((string) ($in[$key] ?? '')));
-            if ($val !== '' && method_exists('Simple_MCP', 'bin_path_valid') && !Simple_MCP::bin_path_valid($kind, $val)) {
+            if ($val !== '' && method_exists('Simple_MCP', 'bin_path_valid')
+                && !Simple_MCP::bin_path_valid($kind, $val, true, $kind === 'wp' ? $php_new : null)) {
                 $rejected[] = $key;
                 continue; // попереднє значення лишається
             }
             $o[$key] = $val;
+            if ($kind === 'php' && $val !== '') $php_new = $val;
         }
 
         // Матриця прав по ролях. Хард-лімит wp_cli/server_ops (лише manage_options-ролі)
@@ -171,7 +176,7 @@ class Simple_MCP_Admin {
             <?php if ($rejected): ?>
                 <div class="notice notice-error is-dismissible"><p>Не збережено невалідний шлях:
                     <?php echo esc_html(implode(', ', array_map(function ($k) { return $k === 'php_bin' ? 'php (CLI)' : 'wp'; }, $rejected))); ?>.
-                    Потрібен абсолютний шлях до наявного файлу з іменем php/php8.x (виконуваний) або wp/wp-cli.phar — попереднє значення лишилось.</p></div>
+                    Потрібен абсолютний шлях до файлу з іменем php/php8.x (CLI-php) або wp/wp-cli.phar (WP-CLI), який існує й запускається від імені веб-сервера — попереднє значення лишилось.</p></div>
             <?php endif; ?>
 
             <h2>Підключення</h2>
@@ -335,7 +340,7 @@ class Simple_MCP_Admin {
                             <?php if ($locked !== ''): ?>
                                 <p class="description">Задано константою <code><?php echo esc_html($const); ?></code> у wp-config — має пріоритет, тут не змінюється.</p>
                             <?php else: ?>
-                                <p class="description"><?php echo esc_html($hint); ?> Шлях з налаштувань приймається лише абсолютний, до наявного файлу <?php echo $kind === 'php' ? 'php/php8.x (виконуваного)' : 'wp/wp-cli.phar'; ?>; константа <code><?php echo esc_html($const); ?></code> у wp-config має пріоритет.</p>
+                                <p class="description"><?php echo esc_html($hint); ?> Шлях з налаштувань приймається лише абсолютний, до файлу <?php echo $kind === 'php' ? 'php/php8.x (CLI-php)' : 'wp/wp-cli.phar (WP-CLI)'; ?>, який існує й запускається (під open_basedir перевіряється пробним запуском); константа <code><?php echo esc_html($const); ?></code> у wp-config має пріоритет.</p>
                             <?php endif; ?>
                             <?php if (!empty($cli_info[$kind])): ?>
                                 <p class="description">Зараз: <code><?php echo esc_html((string) $cli_info[$kind]); ?></code> (<?php echo esc_html(self::bin_source_label($kind)); ?><?php
