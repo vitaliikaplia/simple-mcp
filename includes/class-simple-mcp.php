@@ -739,10 +739,32 @@ class Simple_MCP {
         if (empty($ips)) return false; // не резолвиться — не ризикуємо
 
         foreach ($ips as $ip) {
-            if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
-                return false; // приватний/зарезервований діапазон (включно з 169.254/16)
-            }
+            if (!self::ip_is_public($ip)) return false;
         }
         return true;
+    }
+
+    /**
+     * Чи адреса публічна (для url_is_safe). Однаково на PHP 8.1–8.5: до 8.3 filter_var з
+     * FILTER_FLAG_NO_RES_RANGE пропускав IPv6 з вбудованою IPv4 (::ffff:127.0.0.1, ::127.0.0.1,
+     * ::ffff:0:10.0.0.1), тож увесь ::/64 відкидаємо самі. IPv4 усередині NAT64 (64:ff9b::/96) і 6to4
+     * (2002::/16) перевіряємо як IPv4 (решта 64:ff9b::/32 — локальні префікси, не публічні); так само
+     * відкидаємо 100.64.0.0/10 (CGNAT; у деяких хмарах там метадані), якого filter_var не знає.
+     */
+    static function ip_is_public($ip) {
+        $ip  = (string) $ip;
+        $bin = @inet_pton($ip);
+        if ($bin === false) return false;
+        if (strlen($bin) === 16) {
+            if (strncmp($bin, str_repeat("\0", 8), 8) === 0) return false;
+            if (strncmp($bin, "\x00\x64\xff\x9b", 4) === 0) {
+                return substr($bin, 4, 8) === str_repeat("\0", 8) && self::ip_is_public(inet_ntop(substr($bin, 12, 4)));
+            }
+            if (strncmp($bin, "\x20\x02", 2) === 0 && !self::ip_is_public(inet_ntop(substr($bin, 2, 4)))) return false;
+        } elseif (ord($bin[0]) === 100 && (ord($bin[1]) & 0xC0) === 64) {
+            return false;
+        }
+        // приватні/зарезервовані діапазони (включно з 169.254/16, fc00::/7, fe80::/10)
+        return (bool) filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE);
     }
 }

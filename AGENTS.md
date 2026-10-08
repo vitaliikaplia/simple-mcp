@@ -67,14 +67,26 @@ Confirm destructive ones with the user.
 - `includes/class-simple-mcp-github-updater.php` — auto-update from GitHub Releases (SHA-256 checked).
 - `uninstall.php` — removes everything the plugin stored (all sites on multisite).
 - Dev-only (export-ignored, never shipped): `tests/` (`php tests/run.php [filter]`, dependency-free
-  with WP stubs; `tests/integration/` holds read-only WordPress checks run with `wp eval-file`, not part
-  of CI), `bin/` (`check-version.php`, `lint.php`, `release-notes.php`, `check-package.php`,
-  `release-lib.php`), `.github/workflows/` (`ci.yml`: lint on PHP 8.1–8.5 + tests + version check;
-  `release.yml`: tag → verify on PHP 8.1/8.5 + package (zip, unpacked-zip check, notes) → publish).
+  with WP stubs; `tests/e2e/run.sh <wp-dir>` — a real WordPress served by `php -S`, the endpoint driven
+  over HTTP by `tests/e2e/smoke.php`, and any PHP warning/notice/deprecation from the plugin's files
+  fails it; `tests/old-php-guard.php` — the main file bails out with a notice below PHP 8.1;
+  `tests/integration/` holds read-only WordPress checks run with `wp eval-file`, not part of CI),
+  `bin/` (`check-version.php`, `lint.php`, `release-notes.php`, `check-package.php`, `release-lib.php`),
+  `.github/workflows/` (`ci.yml`: lint + tests + version check on PHP 8.1–8.5, the WordPress smoke on
+  8.1 and 8.5, the old-PHP guard on 7.4 and 8.0; `release.yml`: tag → verify on PHP 8.1/8.5 + package
+  (zip, unpacked-zip check, notes) → publish).
+
+## PHP 8.1 floor
+`Requires PHP: 8.1` (WordPress 6.0+). The shipped code must run on 8.1: no functions, classes, constants,
+syntax or attributes' effects from 8.2+ (`php -l` and the tests run on 8.1 in CI, the smoke test runs a real
+WordPress on 8.1). Watch behaviour that changed after 8.1, not only new symbols — e.g. before 8.3
+`filter_var(..., FILTER_FLAG_NO_RES_RANGE)` lets IPv4-mapped IPv6 through (use `Simple_MCP::ip_is_public()`),
+and before 8.3 `proc_get_status()` reports the exit code only once (`run_shell()` keeps it).
+`simple-mcp.php` itself stays parseable on PHP 7 and returns early below 8.1.
 
 ## Release/documentation sync
 
-Current release: **2.5.2**. Canonical author URL: **https://kaplia.pro/**. For a release: keep
+Current release: **2.5.3**. Canonical author URL: **https://kaplia.pro/**. For a release: keep
 the `Version:` header and `SIMPLE_MCP_VERSION` in `simple-mcp.php` identical; update this
 “Current release” line, README's «Поточна версія» and add the new top README changelog entry
 `### X.Y.Z — <title>` under `## Зміни` (it becomes the GitHub release notes and the WordPress
