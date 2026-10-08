@@ -1,6 +1,6 @@
 <?php
 /**
- * Prints the README changelog entry of a release (used as GitHub Release notes).
+ * Prints the CHANGELOG.md entry of a release (used as GitHub Release notes).
  *
  *   php bin/release-notes.php v2.5.0           # Markdown body of "### 2.5.0 — …" (hard wraps joined)
  *   php bin/release-notes.php --title v2.5.0   # "2.5.0 — <title>"
@@ -20,13 +20,13 @@ if (!isset($args[0]) || $args[0] === '') {
 }
 
 $version = smcp_tag_version($args[0]);
-$readme  = (string) @file_get_contents(smcp_root() . '/README.md');
-$entry   = smcp_changelog_entry($readme, $version);
+$log     = (string) @file_get_contents(smcp_root() . '/CHANGELOG.md');
+$entry   = smcp_changelog_entry($log, $version);
 if ($entry === null || $entry['body'] === '') {
-    fwrite(STDERR, "README.md has no non-empty changelog entry \"### $version\" under \"## Зміни\".\n");
+    fwrite(STDERR, "CHANGELOG.md has no non-empty entry \"### $version\" under \"## Зміни\".\n");
     exit(1);
 }
 
-// The README is hard-wrapped; GitHub shows every newline of a release body as a line break.
+// The changelog is hard-wrapped; GitHub shows every newline of a release body as a line break.
 echo $title ? ($entry['title'] !== '' ? $version . ' — ' . $entry['title'] : $version) . "\n" : smcp_unwrap_markdown($entry['body']);
 exit(0);

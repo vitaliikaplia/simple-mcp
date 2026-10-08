@@ -5,8 +5,8 @@
  *   php bin/check-version.php           # all version sources agree
  *   php bin/check-version.php v2.5.0    # …and match this tag
  *
- * Sources: the simple-mcp.php "Version:" header, SIMPLE_MCP_VERSION, AGENTS.md "Current release",
- * README «Поточна версія» and the newest README changelog entry ("### X.Y.Z — …" under "## Зміни").
+ * Sources: the simple-mcp.php "Version:" header, SIMPLE_MCP_VERSION, README «Поточна версія» and the
+ * newest CHANGELOG.md entry ("### X.Y.Z — …" under "## Зміни").
  * Exit code 0 when consistent, 1 otherwise.
  */
 if (PHP_SAPI !== 'cli') exit(1);

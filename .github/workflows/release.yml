@@ -2,7 +2,7 @@ name: Release
 
 # Push a tag vX.Y.Z (matching the plugin version everywhere) to publish a GitHub Release with
 # simple-mcp.zip + simple-mcp.zip.sha256. Sites on 2.5.0+ update only from these release assets
-# (sites still on 2.4.0 or older use the old branch updater: see README «Авто-оновлення»).
+# (sites still on 2.4.0 or older use the old branch updater: see Memo #31, room «updater»).
 #
 # Three jobs keep the package trustworthy: `package` builds the zip and the release notes with git and
 # the runner's preinstalled PHP only (no third-party actions) and checks the unpacked zip (every
@@ -74,7 +74,7 @@ jobs:
           rm -rf build && mkdir build && unzip -q simple-mcp.zip -d build
           php bin/check-package.php build/simple-mcp
 
-      - name: Release notes from the README changelog
+      - name: Release notes from CHANGELOG.md
         run: |
           php bin/release-notes.php "$GITHUB_REF_NAME" > release-notes.md
           php bin/release-notes.php --title "$GITHUB_REF_NAME" > release-title.txt

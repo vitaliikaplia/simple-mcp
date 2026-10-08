@@ -32,18 +32,13 @@ function smcp_constant_version(string $php): ?string {
     return preg_match('/define\(\s*[\'"]SIMPLE_MCP_VERSION[\'"]\s*,\s*[\'"]([^\'"]+)[\'"]\s*\)/', $php, $m) ? $m[1] : null;
 }
 
-/** AGENTS.md: "Current release: **X.Y.Z**". */
-function smcp_agents_version(string $md): ?string {
-    return preg_match('/Current release:\s*\*\*([^*\s]+)\*\*/', $md, $m) ? $m[1] : null;
-}
-
 /** README.md: "Поточна версія: **X.Y.Z**". */
 function smcp_readme_version(string $md): ?string {
     return preg_match('/Поточна версія:\s*\*\*([^*\s]+)\*\*/u', $md, $m) ? $m[1] : null;
 }
 
 /**
- * Changelog entries of README's "## Зміни" section, newest first:
+ * Changelog entries of the "## Зміни" section of CHANGELOG.md, newest first:
  * [['version' => '2.4.0', 'title' => '…', 'body' => '…'], …]. Each entry is a "### X.Y.Z — title"
  * heading; its body runs to the next version heading or the next "##" section. Other "###" lines
  * (sub-headings inside an entry) stay in the body.
@@ -95,25 +90,23 @@ function smcp_changelog_entry(string $md, string $version): ?array {
 
 /**
  * Every place that carries the release version → its value (null when not found).
- * $sources: ['simple-mcp.php' => …, 'AGENTS.md' => …, 'README.md' => …] (file contents).
+ * $sources: ['simple-mcp.php' => …, 'README.md' => …, 'CHANGELOG.md' => …] (file contents).
  */
 function smcp_versions(array $sources): array {
-    $php    = (string) ($sources['simple-mcp.php'] ?? '');
-    $readme = (string) ($sources['README.md'] ?? '');
-    $log    = smcp_changelog($readme);
+    $php = (string) ($sources['simple-mcp.php'] ?? '');
+    $log = smcp_changelog((string) ($sources['CHANGELOG.md'] ?? ''));
     return [
-        'simple-mcp.php Version header'        => smcp_header_version($php),
-        'simple-mcp.php SIMPLE_MCP_VERSION'    => smcp_constant_version($php),
-        'AGENTS.md "Current release"'          => smcp_agents_version((string) ($sources['AGENTS.md'] ?? '')),
-        'README.md «Поточна версія»'           => smcp_readme_version($readme),
-        'README.md newest changelog entry'     => $log ? $log[0]['version'] : null,
+        'simple-mcp.php Version header'     => smcp_header_version($php),
+        'simple-mcp.php SIMPLE_MCP_VERSION' => smcp_constant_version($php),
+        'README.md «Поточна версія»'        => smcp_readme_version((string) ($sources['README.md'] ?? '')),
+        'CHANGELOG.md newest entry'         => $log ? $log[0]['version'] : null,
     ];
 }
 
 /** Reads the version sources from the plugin root. */
 function smcp_read_sources(string $root): array {
     $sources = [];
-    foreach (['simple-mcp.php', 'AGENTS.md', 'README.md'] as $file) {
+    foreach (['simple-mcp.php', 'README.md', 'CHANGELOG.md'] as $file) {
         $contents         = @file_get_contents($root . '/' . $file);
         $sources[$file]   = is_string($contents) ? $contents : '';
     }
