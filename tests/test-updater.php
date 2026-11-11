@@ -219,6 +219,26 @@ smcp_test('updater: without GitHub data only release-asset entries survive for t
     }
 });
 
+smcp_test('updater: the changelog tab shows release notes, or links to the branch CHANGELOG.md in the dev channel', function () {
+    if (defined('SIMPLE_MCP_UPDATE_CHANNEL')) {
+        smcp_skip('SIMPLE_MCP_UPDATE_CHANNEL is defined in this environment');
+    }
+    $html = (new ReflectionMethod('Simple_MCP_GitHub_Updater', 'changelog_html'))
+        ->invoke(new Simple_MCP_GitHub_Updater(), ['version' => '2.5.4', 'body' => "- **Fixed:** something\n"]);
+    smcp_assert_true(str_contains($html, '<h4>2.5.4</h4>') && str_contains($html, '<strong>Fixed:</strong>'), 'release notes rendered');
+
+    // The channel is a constant, so the dev channel runs in a child PHP.
+    if (!function_exists('proc_open')) {
+        smcp_skip('needs proc_open');
+    }
+    $code = 'define("SIMPLE_MCP_UPDATE_CHANNEL", "branch"); define("SIMPLE_MCP_GITHUB_BRANCH", "dev/next"); require $argv[1];'
+        . ' echo (new ReflectionMethod("Simple_MCP_GitHub_Updater", "changelog_html"))->invoke(new Simple_MCP_GitHub_Updater(), ["version" => "2.5.4"]);';
+    $r = Simple_MCP::run_shell([PHP_BINARY, '-n', '-r', $code, SMCP_TEST_ROOT . '/tests/bootstrap.php'], null, 30);
+    smcp_assert_same(0, $r['code'], 'child PHP: ' . $r['stderr'] . $r['stdout']);
+    smcp_assert_true(str_contains($r['stdout'], 'href="https://github.com/vitaliikaplia/simple-mcp/blob/dev/next/CHANGELOG.md"'), 'links to the branch CHANGELOG.md: ' . $r['stdout']);
+    smcp_assert_false(str_contains($r['stdout'], '#readme'), 'no README link');
+});
+
 smcp_test('updater: verify_package refuses a non-release package for this plugin', function () {
     if (defined('SIMPLE_MCP_UPDATE_CHANNEL')) {
         smcp_skip('SIMPLE_MCP_UPDATE_CHANNEL is defined in this environment');

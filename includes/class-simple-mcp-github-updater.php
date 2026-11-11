@@ -151,7 +151,7 @@ class Simple_MCP_GitHub_Updater {
         }
         if ($this->is_branch_channel()) {
             return '<p>Dev-канал (гілка <code>' . esc_html($this->get_branch()) . '</code>): пакет — zip гілки без контрольної суми. Список змін — у <a href="'
-                . esc_url($this->get_repository_url() . '#readme') . '">README репозиторію</a>.</p>';
+                . esc_url($this->get_repository_url() . '/blob/' . $this->get_url_ref($this->get_branch()) . '/CHANGELOG.md') . '">CHANGELOG.md гілки</a>.</p>';
         }
         $body = trim((string) ($data['body'] ?? ''));
         $html = $body !== '' ? self::markdown_to_html($body) : '<p>Опис змін до релізу не додано.</p>';

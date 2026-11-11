@@ -5,7 +5,7 @@ WordPress-плагін: приватний MCP-сервер, через який
 ще й з WP-CLI. Кожен ключ доступу належить користувачу WordPress і має рівно його права. Плагін для
 власних проєктів, не для публікації.
 
-Поточна версія: **2.5.3** · PHP 8.1+ · WordPress 6.0+ · [зміни](CHANGELOG.md) · автор — [Vitalii Kaplia](https://kaplia.pro/)
+Поточна версія: **2.5.4** · PHP 8.1+ · WordPress 6.0+ · [зміни](CHANGELOG.md) · автор — [Vitalii Kaplia](https://kaplia.pro/)
 
 Встановлення: завантажте `simple-mcp.zip` з
 [останнього релізу](https://github.com/vitaliikaplia/simple-mcp/releases/latest) і встановіть через
