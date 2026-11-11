@@ -60,7 +60,12 @@ function untrailingslashit($value) { return rtrim((string) $value, '/\\'); }
 function wp_unslash($value) { return is_string($value) ? stripslashes($value) : $value; }
 function sanitize_text_field($value) { return trim(strip_tags((string) $value)); }
 function home_url($path = '') { return 'https://example.test' . $path; }
-function get_option($name, $default = false) { return $default; }
+/** Опції в тестах: $GLOBALS['smcp_test_options'][name] (напр. simple_mcp_options), інакше $default */
+$GLOBALS['smcp_test_options'] = [];
+function get_option($name, $default = false) { return $GLOBALS['smcp_test_options'][$name] ?? $default; }
+function wp_parse_url($url, $component = -1) { return parse_url((string) $url, $component); }
+function get_bloginfo($show = '') { return 'Simple MCP Test'; }
+function wp_specialchars_decode($s, $quote = ENT_NOQUOTES) { return htmlspecialchars_decode((string) $s, $quote); }
 function get_site_transient($key) { return false; }
 function set_site_transient($key, $value, $ttl = 0) { return true; }
 function delete_site_transient($key) { return true; }
@@ -83,6 +88,7 @@ foreach ([
     'includes/class-simple-mcp.php',
     'includes/class-simple-mcp-cli.php',
     'includes/class-auth.php',
+    'includes/class-oauth.php',
     'includes/class-audit.php',
     'includes/class-tools.php',
     'includes/tools/class-simple-mcp-tools-blocks.php',

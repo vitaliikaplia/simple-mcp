@@ -169,7 +169,7 @@ class Simple_MCP_User_Keys {
                             <?php foreach ($keys as $k): ?>
                                 <tr>
                                     <td class="simple-mcp-key-name"><strong><?php echo esc_html($k['name']); ?></strong>
-                                        <span class="simple-mcp-key-meta">id <code><?php echo esc_html($k['id']); ?></code></span></td>
+                                        <span class="simple-mcp-key-meta"><?php if (($k['via'] ?? '') !== ''): ?><?php echo esc_html($k['via']); ?> · <?php endif; ?>id <code><?php echo esc_html($k['id']); ?></code></span></td>
                                     <td data-label="Створено"><?php echo esc_html(self::fmt_time($k['created']) ?: '—'); ?></td>
                                     <td data-label="Ким"><?php
                                         if ($k['legacy']) {
@@ -220,12 +220,33 @@ class Simple_MCP_User_Keys {
                             <?php echo $is_self ? 'тебе' : 'цього користувача'; ?> з правами ролі
                             (<code><?php echo esc_html(implode(', ', (array) $user->roles)); ?></code>).</p>
                         <p class="description">Ендпоінт: <code style="user-select:all"><?php echo esc_html($endpoint); ?></code></p>
+                        <?php if (Simple_MCP_OAuth::enabled()) self::render_oauth_hints($endpoint); ?>
                     <?php elseif ($keys): ?>
                         <p class="description" style="color:#b32d2e">Ключі існують, але роль більше не має MCP-доступу — автентифікація відхиляється. Радимо відкликати.</p>
                     <?php endif; ?>
                 </td>
             </tr>
         </table>
+        <?php
+    }
+
+    /** Як підключити агента без ключа (OAuth увімкнено): адреса й кроки в кожному агенті */
+    static function render_oauth_hints($endpoint) {
+        $e = esc_html($endpoint);
+        ?>
+        <details style="margin-top:12px;max-width:720px">
+            <summary style="cursor:pointer;font-weight:600">Підключення без ключа — через OAuth (ChatGPT, Claude, Gemini, Codex, Claude Code)</summary>
+            <div style="padding:8px 0 0">
+                <p class="description" style="margin:0 0 8px">Агенту потрібна лише адреса <code style="user-select:all"><?php echo $e; ?></code>. Він сам відкриє вхід на цей сайт і запитає дозвіл; після «Дозволити» підключення з'явиться в списку вище з позначкою «OAuth». Діє від вашого імені з правами вашої ролі; відкликається тут же.</p>
+                <ul style="margin:0 0 0 18px;list-style:disc">
+                    <li><strong>ChatGPT</strong>: Налаштування → Плагіни → Переглянути каталог → Особисті → «Додати власний сервер MCP»; URL — адреса вище, автентифікація — OAuth.</li>
+                    <li><strong>Claude (claude.ai, застосунок)</strong>: Налаштування → Connectors → «Add custom connector»; лише адреса, без OAuth Client ID.</li>
+                    <li><strong>Gemini</strong>: Підключені додатки → «Підключитися до сервера MCP»; адреса вище.</li>
+                    <li><strong>Claude Code</strong>: <code style="user-select:all">claude mcp add --transport http simple-mcp <?php echo $e; ?></code>, потім <code>/mcp</code> → Authenticate.</li>
+                    <li><strong>Codex</strong>: <code style="user-select:all">codex mcp add simple-mcp --url <?php echo $e; ?></code>, потім <code>codex mcp login simple-mcp</code>.</li>
+                </ul>
+            </div>
+        </details>
         <?php
     }
 

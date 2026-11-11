@@ -1,7 +1,7 @@
 <?php
 /**
  * Повне чищення при видаленні плагіна — на КОЖНОМУ сайті мультисайту:
- * таблиця логу, усі опції simple_mcp_* (налаштування, версія, лічильники rate-limit і невдалих
+ * таблиці логу й OAuth, усі опції simple_mcp_* (налаштування, версія, лічильники rate-limit і невдалих
  * спроб), транзієнти, cron ретенції, post meta (_simple_mcp_backup — резервні копії контенту,
  * _simple_mcp_detached), тимчасовий каталог частинкових завантажень. Глобально: user meta
  * ключів (іменовані + легасі), site-транзієнти мережі, WP-CLI HOME цього сайту.
@@ -30,8 +30,11 @@ $simple_mcp_rmdir = function ($dir) use (&$simple_mcp_rmdir) {
 
 /** Чищення поточного сайту (у мультисайті викликається після switch_to_blog) */
 $simple_mcp_site = function () use ($wpdb, $simple_mcp_rmdir) {
-    $table = $wpdb->prefix . 'simple_mcp_log';
-    $wpdb->query("DROP TABLE IF EXISTS `$table`");
+    // Журнал і таблиці OAuth (2.6.0: клієнти, підключення, коди, токени)
+    foreach (['simple_mcp_log', 'simple_mcp_oauth_clients', 'simple_mcp_oauth_grants', 'simple_mcp_oauth_codes', 'simple_mcp_oauth_tokens'] as $simple_mcp_t) {
+        $table = $wpdb->prefix . $simple_mcp_t;
+        $wpdb->query("DROP TABLE IF EXISTS `$table`");
+    }
 
     // Опції (simple_mcp_options, simple_mcp_version, легасі simple_mcp_key_hash, лічильники
     // simple_mcp_rl_/af_/al_*) і транзієнти (флеш ключа, частинкові завантаження, кеші) —

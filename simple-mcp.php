@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Simple MCP
  * Description: Приватний MCP-сервер для WordPress: власний ендпоінт поза REST API, персональні ключі з дзеркаленням ролей/прав WordPress, WP-CLI для адмінів (deny-list) + безпечні типізовані інструменти для контенту, Gutenberg-блоків, ACF, медіа та мультимовності.
- * Version: 2.5.4
+ * Version: 2.6.0
  * Author: Vitalii Kaplia
  * Author URI: https://kaplia.pro/
  * Requires at least: 6.0
@@ -31,7 +31,7 @@ if (PHP_VERSION_ID < 80100) {
     return;
 }
 
-define('SIMPLE_MCP_VERSION', '2.5.4');
+define('SIMPLE_MCP_VERSION', '2.6.0');
 define('SIMPLE_MCP_FILE', __FILE__);
 define('SIMPLE_MCP_DIR', plugin_dir_path(__FILE__));
 define('SIMPLE_MCP_URL', plugin_dir_url(__FILE__));
@@ -41,6 +41,8 @@ if (!defined('SIMPLE_MCP_GITHUB_BRANCH')) define('SIMPLE_MCP_GITHUB_BRANCH', 'ma
 
 require_once SIMPLE_MCP_DIR . 'includes/class-simple-mcp.php';
 require_once SIMPLE_MCP_DIR . 'includes/class-auth.php';
+require_once SIMPLE_MCP_DIR . 'includes/class-oauth.php';
+require_once SIMPLE_MCP_DIR . 'includes/class-oauth-server.php';
 require_once SIMPLE_MCP_DIR . 'includes/class-audit.php';
 require_once SIMPLE_MCP_DIR . 'includes/class-tools.php';
 require_once SIMPLE_MCP_DIR . 'includes/class-simple-mcp-cli.php';

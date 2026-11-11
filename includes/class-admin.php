@@ -69,6 +69,11 @@ class Simple_MCP_Admin {
         $o['rate_limit']   = max(0, $num('rate_limit', 120));
         $o['log_retention_days'] = max(0, min(3650, $num('log_retention_days', Simple_MCP_Audit::RETENTION_DEFAULT)));
         $o['deny_list']    = self::lines_to_array((string) ($in['deny_list'] ?? ''));
+        // OAuth: вмикає адміністратор; таблиці створюємо одразу, щоб перший агент не чекав міграції
+        $o['oauth_enabled']      = !empty($in['oauth_enabled']);
+        $o['oauth_wp_cli']       = !empty($in['oauth_wp_cli']);
+        $o['oauth_any_redirect'] = !empty($in['oauth_any_redirect']);
+        if ($o['oauth_enabled']) Simple_MCP_OAuth::ensure_tables();
         $o['ip_allowlist'] = self::lines_to_array((string) ($in['ip_allowlist'] ?? ''));
 
         // Шляхи до бінарників: константа wp-config має пріоритет (поле вимкнене й не постить —
@@ -138,6 +143,83 @@ class Simple_MCP_Admin {
         Simple_MCP_Audit::clear();
         wp_safe_redirect(admin_url('options-general.php?page=simple-mcp&log_cleared=1') . '#simple-mcp-log');
         exit;
+    }
+
+    /** Блок «Підключення агентів через OAuth» у формі налаштувань + список підключених агентів */
+    static function render_oauth(array $o, $endpoint) {
+        $on    = !empty($o['oauth_enabled']);
+        $known = [];
+        foreach (Simple_MCP_OAuth::known_hosts() as $host => $info) {
+            $known[] = (is_array($info) ? $info[0] : $info) . ' (' . $host . (is_array($info) && !empty($info[1]) ? ' і піддомени' : '') . ')';
+        }
+        $conns = $on ? Simple_MCP_OAuth::connections() : [];
+        ?>
+        <h2 id="simple-mcp-oauth">Підключення агентів через OAuth</h2>
+        <p class="description" style="max-width:820px">
+            ChatGPT, Claude, Gemini, Codex чи Claude Code підключаються <strong>без ключа</strong>: агенту дають лише адресу
+            ендпоінта, він сам відкриває вхід WordPress, людина тисне «Дозволити». Підключення стає іменованим ключем
+            цього користувача (з позначкою «OAuth») і діє рівно з правами його ролі за матрицею вище; відкликається в профілі.
+            Персональні ключі працюють як і раніше, незалежно від цього перемикача.
+        </p>
+        <table class="form-table" role="presentation">
+            <tr>
+                <th scope="row">OAuth</th>
+                <td><label><input type="checkbox" name="oauth_enabled" value="1" <?php checked($on); ?>> дозволити підключення агентів через OAuth</label>
+                    <p class="description">Вимкнено — адреси OAuth відповідають як звичайні неіснуючі сторінки, а вже видані OAuth-токени перестають діяти (підключення й ключі лишаються).</p>
+                    <?php if ($on): ?>
+                        <p class="description">Адреса для агента: <code style="user-select:all"><?php echo esc_html($endpoint); ?></code> ·
+                            метадані: <code><?php echo esc_html(Simple_MCP_OAuth::resource_metadata_url()); ?></code>,
+                            <code><?php echo esc_html(home_url('/.well-known/oauth-authorization-server')); ?></code></p>
+                    <?php endif; ?>
+                </td>
+            </tr>
+            <tr>
+                <th scope="row">WP-CLI для OAuth</th>
+                <td><label><input type="checkbox" name="oauth_wp_cli" value="1" <?php checked(!empty($o['oauth_wp_cli'])); ?>> OAuth-підключення отримують <code>wp_cli</code> (і серверні операції), якщо їх дозволяє роль користувача</label>
+                    <p class="description">WP-CLI підпорядковується ролі (лише ролі з <code>manage_options</code>, матриця вище). Зніміть, щоб жодне OAuth-підключення не мало WP-CLI — ключі це не зачіпає.</p></td>
+            </tr>
+            <tr>
+                <th scope="row">Адреси повернення</th>
+                <td><label><input type="checkbox" name="oauth_any_redirect" value="1" <?php checked(!empty($o['oauth_any_redirect'])); ?>> дозволити будь-які адреси (не лише відомих агентів)</label>
+                    <p class="description">Типово код згоди віддається лише відомим агентам: <?php echo esc_html(implode(', ', $known)); ?>,
+                        а також застосункам на комп'ютері людини (loopback <code>http://127.0.0.1:порт</code> — Codex, Claude Code; власні схеми на кшталт <code>cursor://</code>).
+                        Будь-які адреси — для інших клієнтів; на екрані згоди людина бачить, куди піде відповідь.</p></td>
+            </tr>
+        </table>
+        <?php if ($on): ?>
+            <h3 style="margin-top:4px">Підключені агенти</h3>
+            <?php if (!$conns): ?>
+                <p class="description">Жодного агента ще не підключено.</p>
+            <?php else: ?>
+                <table class="widefat striped" style="max-width:980px">
+                    <thead><tr><th>Агент</th><th>Користувач</th><th>Куди відповідає</th><th>Підключено</th><th>Останній виклик</th><th></th></tr></thead>
+                    <tbody>
+                    <?php foreach ($conns as $c):
+                        $revoke = add_query_arg([
+                            'action'   => 'simple_mcp_user_revoke',
+                            'user_id'  => $c['user_id'],
+                            'key_id'   => $c['key_id'],
+                            '_wpnonce' => wp_create_nonce('simple_mcp_user_key_' . $c['user_id']),
+                        ], admin_url('admin-post.php'));
+                        $edit = get_edit_user_link($c['user_id']);
+                    ?>
+                        <tr>
+                            <td><strong><?php echo esc_html($c['name']); ?></strong><?php if ($c['client'] !== '' && $c['client'] !== $c['name']): ?><br><span class="description"><?php echo esc_html($c['client']); ?></span><?php endif; ?></td>
+                            <td><?php $login = Simple_MCP_User_Keys::user_label($c['user_id']);
+                                echo $edit ? '<a href="' . esc_url($edit . '#simple-mcp') . '">' . esc_html($login) . '</a>' : esc_html($login); ?></td>
+                            <td><code><?php echo esc_html($c['host'] ?: '—'); ?></code></td>
+                            <td><?php echo esc_html(Simple_MCP_User_Keys::fmt_time($c['created']) ?: '—'); ?></td>
+                            <td><?php echo $c['last_used'] ? esc_html(Simple_MCP_User_Keys::fmt_time($c['last_used'])) . ($c['last_ip'] !== '' ? '<br><span class="description">' . esc_html($c['last_ip']) . '</span>' : '') : '<span class="description">ще ні</span>'; ?></td>
+                            <td style="text-align:right"><a class="button button-link-delete" href="<?php echo esc_url($revoke); ?>"
+                                   onclick="return confirm(<?php echo esc_attr(wp_json_encode('Відкликати підключення «' . $c['name'] . '»? Агент одразу втратить доступ.')); ?>)">Відкликати</a></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
+            <p class="description" style="max-width:820px">Якщо хмарний агент пише «Couldn't reach» чи бачить 429, а в журналі нижче немає рядка відмови — перевірте захист хостингу:
+                блокування User-Agent <code>Claude-User</code> / <code>ClaudeBot</code> (403) і перевірку «підозрілих IP» через JS/Captcha (429) треба вимкнути для цього сайту.</p>
+        <?php endif;
     }
 
     static function lines_to_array($text) {
@@ -279,6 +361,8 @@ class Simple_MCP_Admin {
                     </tbody>
                 </table>
                 <p class="description">Кастомні ролі підтягуються автоматично. Нова роль за замовчуванням без MCP-доступу — увімкни свідомо. Якщо в користувача кілька ролей, його дозволи = об'єднання дозволів цих ролей.</p>
+
+                <?php self::render_oauth($o, $endpoint); ?>
 
                 <h2>Налаштування</h2>
                 <table class="form-table" role="presentation">

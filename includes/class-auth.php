@@ -14,6 +14,10 @@
  * bearer → формат токена → hash_equals з ключами користувача (з заблокованої IP невалідний токен
  * отримує 429 без лічильника й аудиту, а валідний ключ проходить: за NAT/проксі без
  * SIMPLE_MCP_TRUSTED_PROXIES усі клієнти ділять одну адресу) → користувач → роль → rate-limit.
+ * 429 за невдачі — лише за вгадування ключа: запит без токена завжди отримує 401 (і шлях до
+ * OAuth), а OAuth-токен доступу (Simple_MCP_OAuth) — 32 випадкові байти, що щогодини штатно
+ * спливають, — не рахується й не журналиться: конектори Claude ходять зі спільних адрес, і
+ * чужі старі токени блокували б справжні підключення (урок Memo, 09.11.2026).
  * Лічильник невдач і троттлінг аудиту рахуються на IPv4-адресу або IPv6-мережу /64 (ip_bucket),
  * а рядків аудиту відмов за вікно — не більше AUDIT_FAIL_MAX на весь сайт.
  * Довірені проксі — константа SIMPLE_MCP_TRUSTED_PROXIES (IP/CIDR): лише для них
@@ -28,7 +32,7 @@ class Simple_MCP_Auth {
     /** Префікс персонального ключа (далі — id користувача і випадкова частина) */
     const KEY_PREFIX = 'smcp';
 
-    /** User meta зі списком іменованих ключів: [{id,name,hash,created,created_by,last_used,last_ip}] */
+    /** User meta зі списком іменованих ключів: [{id,name,hash,created,created_by,last_used,last_ip,via}] */
     const KEYS_META = 'simple_mcp_keys';
     /** User meta з останнім використанням легасі-ключа: ['time' => int, 'ip' => string] */
     const LEGACY_USED_META = 'simple_mcp_key_legacy_used';
@@ -48,6 +52,8 @@ class Simple_MCP_Auth {
     private static $perms = null;
     private static $user_id = 0;
     private static $key_id = '';
+    /** Як автентифіковано поточний запит: 'key' | 'oauth' ('' поза MCP) */
+    private static $via = '';
 
     /**
      * Повертає true або WP_Error (data: status, headers — заголовки для HTTP-відповіді).
@@ -58,6 +64,7 @@ class Simple_MCP_Auth {
         self::$perms   = null;
         self::$user_id = 0;
         self::$key_id  = '';
+        self::$via     = '';
 
         if (defined('SIMPLE_MCP_DISABLE') && SIMPLE_MCP_DISABLE) {
             return self::deny('disabled', 'MCP вимкнено (kill-switch)', 503);
@@ -82,33 +89,44 @@ class Simple_MCP_Auth {
             return self::deny('ip', 'IP не в дозволеному списку', 403);
         }
 
-        // Забагато невдалих спроб з цієї IP (/64 для IPv6): невалідний токен → 429 (без лічильника,
-        // аудиту й usleep у воркері), але валідний ключ звіряється й проходить — інакше будь-хто за тим
-        // самим NAT/проксі блокував би справжні ключі десятьма сміттєвими запитами.
-        $locked = self::counter_peek('af', self::ip_bucket($ip), self::LOCKOUT_WINDOW) >= self::LOCKOUT_MAX;
-
+        // Без токена — завжди 401 з дорогою до входу (і до OAuth, якщо його ввімкнено), ніколи 429
         $provided = self::bearer();
         if ($provided === '') {
-            if ($locked) return self::locked();
-            return self::deny('noauth', 'Відсутній bearer-токен', 401, ['WWW-Authenticate' => 'Bearer realm="simple-mcp"']);
+            return self::deny('noauth', 'Відсутній bearer-токен', 401, ['WWW-Authenticate' => self::challenge()]);
         }
 
-        // id користувача зашитий у токен (smcp-{id}-…) — O(1) резолв без сканування meta
-        $uid = self::token_user_id($provided);
-        if (!$uid) {
-            return $locked ? self::locked() : self::fail('badauth', 'Невірний токен (формат)', 0);
-        }
-
-        // Звіряємо з УСІМА ключами користувача (hash_equals, без раннього виходу)
-        $hash  = hash('sha256', $provided);
-        $match = '';
-        foreach (self::keys_for($uid) as $k) {
-            if (hash_equals((string) $k['hash'], $hash) && $match === '') {
-                $match = (string) $k['id'];
+        $oauth = class_exists('Simple_MCP_OAuth') && Simple_MCP_OAuth::is_access_token($provided);
+        if ($oauth) {
+            // OAuth-токен доступу: не рахується в блокування IP і не журналиться (щогодини спливає штатно)
+            $who = Simple_MCP_OAuth::enabled() ? Simple_MCP_OAuth::authenticate($provided) : null;
+            if (!$who) {
+                return self::deny('badauth', 'OAuth-токен недійсний, прострочений або відкликаний', 401, ['WWW-Authenticate' => self::challenge(true)]);
             }
-        }
-        if ($match === '') {
-            return $locked ? self::locked() : self::fail('badauth', 'Невірний або відкликаний токен', $uid);
+            $uid   = (int) $who['user_id'];
+            $match = (string) $who['key_id'];
+        } else {
+            // Забагато невдалих спроб з цієї IP (/64 для IPv6): невалідний ключ → 429 (без лічильника,
+            // аудиту й usleep у воркері), але валідний ключ звіряється й проходить — інакше будь-хто за тим
+            // самим NAT/проксі блокував би справжні ключі десятьма сміттєвими запитами.
+            $locked = self::counter_peek('af', self::ip_bucket($ip), self::LOCKOUT_WINDOW) >= self::LOCKOUT_MAX;
+
+            // id користувача зашитий у токен (smcp-{id}-…) — O(1) резолв без сканування meta
+            $uid = self::token_user_id($provided);
+            if (!$uid) {
+                return $locked ? self::locked() : self::fail('badauth', 'Невірний токен (формат)', 0);
+            }
+
+            // Звіряємо з УСІМА ключами користувача (hash_equals, без раннього виходу)
+            $hash  = hash('sha256', $provided);
+            $match = '';
+            foreach (self::keys_for($uid) as $k) {
+                if (hash_equals((string) $k['hash'], $hash) && $match === '') {
+                    $match = (string) $k['id'];
+                }
+            }
+            if ($match === '') {
+                return $locked ? self::locked() : self::fail('badauth', 'Невірний або відкликаний токен', $uid);
+            }
         }
 
         $user = get_user_by('id', $uid);
@@ -122,6 +140,11 @@ class Simple_MCP_Auth {
             self::audit_throttled('norole', 'Роль користувача ' . $user->user_login . ' не має MCP-доступу', $uid);
             return self::deny('norole', 'Роль користувача не має MCP-доступу (Налаштування → Simple MCP)', 403);
         }
+        // WP-CLI підпорядковується ролі; перемикач «WP-CLI для OAuth-підключень» може забрати його в усіх OAuth-підключень
+        if ($oauth && !Simple_MCP_OAuth::wp_cli_allowed()) {
+            $perms['wp_cli']     = false;
+            $perms['server_ops'] = false;
+        }
 
         // Rate-limit по автентифікованому користувачу
         if ($charge && !self::rate_ok('u' . $uid)) {
@@ -134,9 +157,23 @@ class Simple_MCP_Auth {
         self::$user_id = $uid;
         self::$perms   = $perms;
         self::$key_id  = $match;
+        self::$via     = $oauth ? 'oauth' : 'key';
         self::touch_key($uid, $match);
 
         return true;
+    }
+
+    /**
+     * WWW-Authenticate для 401: Bearer realm, з увімкненим OAuth — ще й resource_metadata (RFC 9728),
+     * за яким клієнт знаходить сервер авторизації; $invalid — токен показали, але він не діє.
+     */
+    static function challenge($invalid = false) {
+        $h = 'Bearer realm="simple-mcp"';
+        if (class_exists('Simple_MCP_OAuth') && Simple_MCP_OAuth::enabled()) {
+            $h .= ', resource_metadata="' . Simple_MCP_OAuth::resource_metadata_url() . '"';
+        }
+        if ($invalid) $h .= ', error="invalid_token", error_description="The access token is invalid or revoked"';
+        return $h;
     }
 
     /** WP_Error відмови з HTTP-статусом і заголовками для транспорту */
@@ -160,9 +197,7 @@ class Simple_MCP_Auth {
             $detail = $msg . ($n === self::LOCKOUT_MAX ? ' — IP заблоковано на ' . self::retry_after(self::LOCKOUT_WINDOW) . ' с після ' . $n . ' невдалих спроб' : '');
             self::audit_failure($code, $detail, $token_uid);
         }
-        return self::deny($code, $msg, 401, [
-            'WWW-Authenticate' => 'Bearer realm="simple-mcp", error="invalid_token", error_description="The access token is invalid or revoked"',
-        ]);
+        return self::deny($code, $msg, 401, ['WWW-Authenticate' => self::challenge(true)]);
     }
 
     /** Аудит відмови не частіше одного рядка на (IP або IPv6 /64, причину) за вікно блокування */
@@ -221,6 +256,7 @@ class Simple_MCP_Auth {
                 'created_by' => (int) ($k['created_by'] ?? 0),
                 'last_used'  => (int) ($k['last_used'] ?? 0),
                 'last_ip'    => (string) ($k['last_ip'] ?? ''),
+                'via'        => (string) ($k['via'] ?? ''),
             ];
         }
         return $out;
@@ -244,6 +280,7 @@ class Simple_MCP_Auth {
                 'created_by' => 0,
                 'last_used'  => is_array($used) ? (int) ($used['time'] ?? 0) : 0,
                 'last_ip'    => is_array($used) ? (string) ($used['ip'] ?? '') : '',
+                'via'        => '',
                 'legacy'     => true,
             ];
         }
@@ -253,8 +290,10 @@ class Simple_MCP_Auth {
     /**
      * Створити новий іменований ключ. Повертає ['key' => plaintext (показати один раз),
      * 'id' => …, 'name' => …] або WP_Error (ліміт MAX_KEYS / помилка запису).
+     * $via — звідки ключ: '' (згенеровано в профілі) або «OAuth · хост» (підключення OAuth; його
+     * plaintext ніде не показується — клієнт тримає лише OAuth-токени).
      */
-    static function create_key($user_id, $name = '', $created_by = null) {
+    static function create_key($user_id, $name = '', $created_by = null, $via = '') {
         $user_id = (int) $user_id;
         if ($user_id <= 0) return new WP_Error('nouser', 'Невірний користувач');
         if (count(self::keys_for($user_id)) >= self::MAX_KEYS) {
@@ -273,6 +312,7 @@ class Simple_MCP_Auth {
             'created_by' => $created_by === null ? get_current_user_id() : (int) $created_by,
             'last_used'  => 0,
             'last_ip'    => '',
+            'via'        => substr(sanitize_text_field((string) $via), 0, 120),
         ];
         $keys   = self::stored_keys($user_id);
         $keys[] = $entry;
@@ -325,6 +365,8 @@ class Simple_MCP_Auth {
         } else {
             delete_user_meta($user_id, self::KEYS_META);
         }
+        // OAuth-підключення цих ключів (коди, токени) — одразу, не чекаючи щоденного прибирання
+        if (class_exists('Simple_MCP_OAuth')) Simple_MCP_OAuth::forget_keys($user_id, $ids);
         return $removed;
     }
 
@@ -373,6 +415,11 @@ class Simple_MCP_Auth {
     /** Id ключа, яким автентифіковано поточний запит ('legacy' для старого ключа; '' поза MCP) */
     static function current_key_id() {
         return self::$key_id;
+    }
+
+    /** Як автентифіковано поточний запит: 'key' | 'oauth' ('' поза MCP) */
+    static function current_via() {
+        return self::$via;
     }
 
     /**
@@ -622,6 +669,10 @@ class Simple_MCP_Auth {
         if (wp_using_ext_object_cache()) return; // у кеші ключі живуть з TTL
         $kinds = $kind === null
             ? ['rl' => self::RATE_WINDOW, 'af' => self::LOCKOUT_WINDOW, 'al' => self::LOCKOUT_WINDOW]
+              // OAuth: реєстрації, невдачі клієнтів на token endpoint, журнал відмов
+              + (class_exists('Simple_MCP_OAuth')
+                  ? ['or' => Simple_MCP_OAuth::REGISTER_WINDOW, 'ot' => Simple_MCP_OAuth::DENY_WINDOW, 'ol' => Simple_MCP_OAuth::DENY_WINDOW]
+                  : [])
             : [$kind => (int) $window];
         foreach ($kinds as $k => $w) {
             $base = 'simple_mcp_' . $k . '_';

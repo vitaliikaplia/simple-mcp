@@ -203,6 +203,7 @@ class Simple_MCP_Audit {
     /** Персональні ключі, bearer-токени та логін:пароль@ в URL у вільному тексті */
     static function redact_text($s) {
         $s = preg_replace('/\b(' . (class_exists('Simple_MCP_Auth') ? Simple_MCP_Auth::KEY_PREFIX : 'smcp') . '-\d+-)[A-Za-z0-9]{8,}/', '$1[redacted]', (string) $s);
+        $s = preg_replace('/\b(smcp_o(?:at|rt|cs)_)[A-Za-z0-9_-]{8,}/', '$1[redacted]', (string) $s); // токени й секрети OAuth
         $s = preg_replace('~\b([a-z][a-z0-9+.-]*://)[^/\s@:]+:[^/\s@]*@~i', '$1[redacted]@', (string) $s);
         return (string) preg_replace('/\b(Bearer\s+)[A-Za-z0-9._~+\/=-]{8,}/i', '$1[redacted]', (string) $s);
     }

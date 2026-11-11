@@ -214,6 +214,7 @@ class Simple_MCP_Tools {
     /**
      * Список для tools/list (без callback). Def може мати 'title' та 'annotations'
      * (readOnlyHint / destructiveHint / idempotentHint / openWorldHint) — передаються як є.
+     * inputSchema — «переносна» (portable): виклик однаково перевіряється повною схемою.
      */
     static function list_public() {
         $out = [];
@@ -221,13 +222,44 @@ class Simple_MCP_Tools {
             $t = ['name' => $name];
             if (!empty($def['title'])) $t['title'] = (string) $def['title'];
             $t['description'] = $def['description'];
-            $t['inputSchema'] = $def['inputSchema'];
+            $t['inputSchema'] = self::portable($def['inputSchema']);
             if (!empty($def['annotations']) && is_array($def['annotations'])) {
                 $ann = $def['annotations'];
                 if (!empty($def['title']) && !isset($ann['title'])) $ann['title'] = (string) $def['title'];
                 $t['annotations'] = $ann;
             }
             $out[] = $t;
+        }
+        return $out;
+    }
+
+    /**
+     * Схема інструмента, як її показуємо клієнтам: без того, що знає лише JSON Schema. Gemini перетворює
+     * інструменти MCP на оголошення функцій своєї моделі, а та схема не має additionalProperties, union-типів
+     * і відкидає незнайоме — підключення падало одразу після tools/list («Не вдалося підключитися», Memo,
+     * 10.11.2026). Тож список без additionalProperties, порожнього required і довжини поруч з enum, а
+     * 'type' => [a, b] стає anyOf. Виклик і далі перевіряється повною схемою (validate_args): зайвий
+     * аргумент відхиляється з переліком дозволених.
+     */
+    static function portable($schema) {
+        if (!is_array($schema)) return $schema;
+        if (array_is_list($schema)) return array_map([__CLASS__, 'portable'], $schema);
+        $out = [];
+        foreach ($schema as $key => $value) {
+            if ($key === 'additionalProperties') continue;
+            if ($key === 'required' && is_array($value) && !$value) continue;
+            if (($key === 'maxLength' || $key === 'minLength') && isset($schema['enum'])) continue;
+            if ($key === 'properties' && is_array($value)) {
+                $props = [];
+                foreach ($value as $prop => $sub) $props[$prop] = self::portable($sub);
+                $out[$key] = $props ?: new stdClass(); // порожній об'єкт, а не []
+                continue;
+            }
+            if ($key === 'type' && is_array($value)) {
+                $out['anyOf'] = array_map(function ($t) { return ['type' => $t]; }, array_values($value));
+                continue;
+            }
+            $out[$key] = self::portable($value);
         }
         return $out;
     }

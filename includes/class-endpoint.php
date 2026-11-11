@@ -8,7 +8,9 @@
  * за специфікацією, вважаємо 2025-03-26. JSON-RPC-батчі існують лише у 2025-03-26: для
  * новіших версій — 400, інакше не більше BATCH_MAX повідомлень, і кожен tools/call
  * батча списується з rate-limit. SSE-потоку немає: GET із валідним ключем → 405 Allow: POST;
- * будь-який не-POST без облікових даних (або з невалідними) отримує звичайний WP-404.
+ * будь-який не-POST без облікових даних (або з невалідними) отримує звичайний WP-404, а з увімкненим
+ * OAuth — 401 з resource_metadata (так клієнти на кшталт Gemini знаходять сервер авторизації).
+ * Двері OAuth (discovery, register, token, згода) — Simple_MCP_OAuth_Server::route.
  * Фатальна помилка PHP усередині виклику перетворюється на JSON-RPC-помилку + рядок аудиту.
  */
 if (!defined('ABSPATH')) exit;
@@ -39,7 +41,11 @@ class Simple_MCP_Endpoint {
     static function maybe_handle($do, $wp) {
         $ours = trim((string) Simple_MCP::opt('path', 'simple-mcp'), '/');
         // порожній шлях (напр. виставлений через wp option) збігся б із головною сторінкою
-        if ($ours === '' || self::current_path() !== $ours) {
+        if ($ours === '') return $do;
+        $path = self::current_path();
+        if ($path !== $ours) {
+            // Двері OAuth (discovery, register, token, згода) — лише коли OAuth увімкнено; відповідають і виходять
+            if (class_exists('Simple_MCP_OAuth_Server')) Simple_MCP_OAuth_Server::route($path, $ours);
             return $do;
         }
         // Наш шлях: не кешувати ні сторінку, ні DB-запити (лічильники автентифікації читаємо свіжими)
@@ -47,9 +53,17 @@ class Simple_MCP_Endpoint {
         if (!defined('DONOTCACHEDB'))   define('DONOTCACHEDB', true);
         $method = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
         if ($method !== 'POST') {
-            // Без облікових даних або з невалідними — звичайний WP-404: шлях не підтверджуємо.
-            if (Simple_MCP_Auth::bearer() === '') return $do;
-            if (is_wp_error(Simple_MCP_Auth::check(false))) return $do;
+            $oauth = class_exists('Simple_MCP_OAuth') && Simple_MCP_OAuth::enabled();
+            $auth  = Simple_MCP_Auth::bearer() === '' ? null : Simple_MCP_Auth::check(false);
+            if ($auth === null || is_wp_error($auth)) {
+                // Без OAuth — звичайний WP-404: шлях не підтверджуємо. З OAuth — 401 з resource_metadata:
+                // клієнти (Gemini) перевіряють адресу HEAD/GET без токена й шукають так сервер авторизації.
+                if (!$oauth) return $do;
+                $data = is_wp_error($auth) ? $auth->get_error_data() : null;
+                $code = is_array($data) && isset($data['status']) ? (int) $data['status'] : 401;
+                $hdrs = is_array($data) && isset($data['headers']) && is_array($data['headers']) ? $data['headers'] : ['WWW-Authenticate' => Simple_MCP_Auth::challenge()];
+                self::emit($code, $hdrs, $method === 'HEAD' ? null : self::error(null, -32001, is_wp_error($auth) ? $auth->get_error_message() : 'Unauthorized'));
+            }
             if (!self::origin_ok()) {
                 self::emit(403, [], self::error(null, -32000, 'Forbidden: Origin is not allowed'));
             }

@@ -26,6 +26,10 @@ class Simple_MCP {
             'log_retention_days' => 30, // скільки днів зберігати audit-лог (0 = не чистити)
             'wp_bin'         => '',   // шлях до бінарника wp ('' = автовизначення)
             'php_bin'        => '',   // шлях до CLI-php ('' = автовизначення)
+            // OAuth (Simple_MCP_OAuth): підключення агентів без ключа — вмикає адміністратор
+            'oauth_enabled'      => false,
+            'oauth_wp_cli'       => true,   // WP-CLI для OAuth-підключень (у межах ролі)
+            'oauth_any_redirect' => false,  // false — коди лише на адреси відомих агентів
             // Матриця прав по ролях: role_slug => [perm => bool]. Ролі, яких тут нема,
             // отримують role_defaults() (дзеркальні дефолти для вбудованих ролей, off для кастомних).
             'roles'          => [],
@@ -140,6 +144,8 @@ class Simple_MCP {
         if (method_exists('Simple_MCP_Tools', 'gc_uploads')) {
             add_action('simple_mcp_prune', ['Simple_MCP_Tools', 'gc_uploads'], 10, 0);   // покинуті частинкові завантаження
         }
+        add_action('simple_mcp_prune', ['Simple_MCP_OAuth', 'purge'], 10, 0);            // прострочені коди й токени OAuth
+        add_action('deleted_user', ['Simple_MCP_OAuth', 'forget_user'], 10, 1);          // OAuth-підключення видаленого користувача
         // Подія могла зникнути (чищення cron, міграція, оновлення без реактивації) — відновлюємо.
         if (!wp_installing() && !wp_next_scheduled('simple_mcp_prune')) {
             wp_schedule_event(time() + HOUR_IN_SECONDS, 'daily', 'simple_mcp_prune');
@@ -159,7 +165,8 @@ class Simple_MCP {
      * Зміна схеми аудит-таблиці (ALTER; на MySQL < 8.0 / MariaDB < 10.3 — перебудова таблиці, яку
      * до 2.5.0 cron ніколи не чистив) і штамп версії — лише в адмінці, cron чи WP-CLI і лише одним
      * запитом за раз (GET_LOCK): фронтенд-запит лише ставить одноразову cron-подію, а
-     * Simple_MCP_Audit::log() тим часом працює і зі старою схемою.
+     * Simple_MCP_Audit::log() тим часом працює і зі старою схемою. Тут же (з 2.6.0) — таблиці OAuth;
+     * поки їх немає, двері OAuth створюють їх самі (Simple_MCP_OAuth::ensure_tables) або відмовляють.
      */
     static function maybe_upgrade() {
         global $wpdb;
@@ -208,6 +215,7 @@ class Simple_MCP {
             $stamped = $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", self::VERSION_OPTION));
             if ($stamped === SIMPLE_MCP_VERSION) return;
             Simple_MCP_Audit::create_table(); // нові колонки (2.5.0: key_id, duration_ms, detail) — одним ALTER
+            Simple_MCP_OAuth::create_tables(); // 2.6.0: клієнти, підключення, коди й токени OAuth
             update_option(self::VERSION_OPTION, SIMPLE_MCP_VERSION);
         } finally {
             if ($got !== null) $wpdb->query($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock));
