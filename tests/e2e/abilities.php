@@ -5,15 +5,19 @@
  * their own permission refusal and failure. Needs tests/e2e/fixtures/smcp-test-abilities.php as a mu-plugin
  * (tests/e2e/run.sh copies it) and WordPress 6.9+.
  *
- *   php tests/e2e/abilities.php <endpoint-url> <key>
+ *   php tests/e2e/abilities.php <endpoint-url> <key> [hidden]
+ *
+ * hidden — a site upgraded from before 2.7.1 (run.sh simulates it): the row «Інструменти плагінів і теми» is off by
+ * default there, so the agent sees exactly the built-in tools it saw before the upgrade.
  *
  * SMCP_E2E_INSECURE_TLS=1 skips TLS verification. Exit 1 on the first failure.
  */
 if (PHP_SAPI !== 'cli' || $argc < 3) {
-    fwrite(STDERR, "usage: php tests/e2e/abilities.php <endpoint-url> <key>\n");
+    fwrite(STDERR, "usage: php tests/e2e/abilities.php <endpoint-url> <key> [hidden]\n");
     exit(2);
 }
 [, $url, $key] = $argv;
+$mode = $argv[3] ?? 'shown';
 
 $checks = 0;
 function check($ok, $what, $context = null) {
@@ -57,6 +61,16 @@ function call_tool($name, $args) {
 check($s === 200 && isset($b['result']['tools']), 'tools/list', $raw);
 $tools = [];
 foreach ($b['result']['tools'] as $t) $tools[$t['name']] = $t;
+
+if ($mode === 'hidden') {
+    $ability_tools = array_filter(array_keys($tools), function ($n) { return strpos($n, '_') === false; });
+    check(!$ability_tools, 'an upgraded site shows no tools of other plugins until the administrator turns them on', array_values($ability_tools));
+    check(isset($tools['get_post'], $tools['block_get'], $tools['wp_cli']), 'the built-in tools are all there');
+    [$s, $b] = rpc('tools/call', ['name' => 'smcp-test-echo', 'arguments' => ['text' => 'x']], 9);
+    check(isset($b['error']) || !empty($b['result']['isError']), 'a hidden ability cannot be called either', $b);
+    echo "\nPHP " . PHP_VERSION . " client — abilities (upgraded site): $checks checks passed against $url\n";
+    exit(0);
+}
 
 foreach (['smcp-test-echo', 'smcp-test-shout', 'smcp-test-site-name', 'smcp-test-forbidden', 'smcp-test-fails'] as $n) {
     check(isset($tools[$n]), "the ability marked for MCP is the tool $n", array_keys($tools));

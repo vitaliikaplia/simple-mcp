@@ -11,6 +11,14 @@ class Simple_MCP {
     const USER_KEY_META    = 'simple_mcp_key_hash';     // SHA-256 персонального ключа (user meta)
     const USER_KEY_CREATED = 'simple_mcp_key_created';  // timestamp генерації ключа (user meta)
 
+    /**
+     * Версія, з якої інструменти інших плагінів і теми (група abilities) з'явились для вже наявних сайтів.
+     * Сайт, оновлений зі старішої версії, отримує позначку abilities_default_off: група типово вимкнена,
+     * доки адміністратор не ввімкне її в матриці, — клієнти бачать рівно те саме, що й до оновлення
+     * (рішення Віталія 14.11.2026). Нові встановлення — типово admin і editor.
+     */
+    const ABILITIES_SINCE = '2.7.1';
+
     /** Дозволи, якими керує матриця ролей (порядок = порядок рядків у таблиці) */
     const PERMS = ['mcp', 'blocks', 'wploc', 'content', 'abilities', 'wp_cli', 'server_ops'];
 
@@ -80,14 +88,28 @@ class Simple_MCP {
      * бере дефолт ролі — без міграції; після першого «Зберегти» він стає явним.
      */
     static function role_perms_raw($role) {
-        $saved = self::opt('roles', []);
-        if (!isset($saved[$role]) || !is_array($saved[$role])) return self::role_defaults($role);
+        $saved    = self::opt('roles', []);
         $defaults = self::role_defaults($role);
+        // сайт, оновлений зі старішої версії: інструменти плагінів типово вимкнені (див. ABILITIES_SINCE)
+        if (self::opt('abilities_default_off')) $defaults['abilities'] = false;
+        if (!isset($saved[$role]) || !is_array($saved[$role])) return $defaults;
         $p = [];
         foreach (self::PERMS as $perm) {
             $p[$perm] = array_key_exists($perm, $saved[$role]) ? (bool) $saved[$role][$perm] : (bool) ($defaults[$perm] ?? false);
         }
         return $p;
+    }
+
+    /**
+     * Чи це вже наявне встановлення зі старішої версії, ніж ABILITIES_SINCE: за штампом версії, а для зовсім
+     * старих (до штампа) — за легасі-ключами налаштувань. Нове встановлення штампа ще не має.
+     */
+    static function predates_abilities($stored_version, $raw) {
+        if (is_string($stored_version) && $stored_version !== '') {
+            return version_compare($stored_version, self::ABILITIES_SINCE, '<');
+        }
+        $raw = is_array($raw) ? $raw : [];
+        return isset($raw['wp_cli_enabled']) || isset($raw['modules']) || isset($raw['user_id']) || isset($raw['allow_server_ops']);
     }
 
     /** Server ops заблоковані для всіх ролей, коли wp-config забороняє зміни файлів (DISALLOW_FILE_MODS). */
@@ -178,13 +200,21 @@ class Simple_MCP {
      */
     static function maybe_upgrade() {
         global $wpdb;
-        if (get_option(self::VERSION_OPTION) === SIMPLE_MCP_VERSION) return;
+        $stored = get_option(self::VERSION_OPTION);
+        if ($stored === SIMPLE_MCP_VERSION) return;
 
         $raw = get_option(self::OPTION, []);
+        // Наявний сайт зі старішої версії: інструменти плагінів і теми типово вимкнені (один раз, на будь-якому
+        // першому запиті — і на фронтенді, щоб MCP-клієнт одразу після оновлення бачив те саме, що й раніше)
+        if (is_array($raw) && !array_key_exists('abilities_default_off', $raw) && self::predates_abilities($stored, $raw)) {
+            $raw['abilities_default_off'] = true;
+            update_option(self::OPTION, $raw);
+        }
         if (is_array($raw) && (isset($raw['wp_cli_enabled']) || isset($raw['modules']) || isset($raw['user_id']) || isset($raw['allow_server_ops']))) {
             $roles = [];
             foreach (array_keys(wp_roles()->roles) as $slug) {
                 $roles[$slug] = self::role_defaults($slug);
+                unset($roles[$slug]['abilities']); // береться з дефолту з урахуванням abilities_default_off
             }
             // старі глобальні тумблери стають значеннями адмін-рядка
             if (isset($roles['administrator'])) {

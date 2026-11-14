@@ -43,6 +43,15 @@ done
 
 "$PHP" "$HERE/smoke.php" "http://127.0.0.1:$PORT/simple-mcp" "$KEY" "$VERSION"
 "$PHP" "$HERE/abilities.php" "http://127.0.0.1:$PORT/simple-mcp" "$KEY"
+# A site upgraded from before 2.7.1: the migration marks it, the row «Інструменти плагінів і теми» is off by default
+$WPCLI --path="$WP_DIR" eval '
+    update_option("simple_mcp_version", "2.6.0");
+    Simple_MCP::maybe_upgrade();
+    echo "FLAG=", (int) !empty(get_option(Simple_MCP::OPTION)["abilities_default_off"]), " ADMIN=", (int) Simple_MCP::role_perms_raw("administrator")["abilities"],
+        " STAMP=", get_option("simple_mcp_version"), "\n";' | grep -q "FLAG=1 ADMIN=0 STAMP=$VERSION" || { echo "the upgrade did not keep plugin tools off"; exit 1; }
+echo "ok   an upgrade from 2.6.0 marks the site and keeps plugin tools off"
+"$PHP" "$HERE/abilities.php" "http://127.0.0.1:$PORT/simple-mcp" "$KEY" hidden
+$WPCLI --path="$WP_DIR" eval '$o = get_option(Simple_MCP::OPTION); unset($o["abilities_default_off"]); update_option(Simple_MCP::OPTION, $o); echo "OK\n";' | grep -q OK
 
 # ── OAuth (off by default): switch it on, sign the administrator in, walk the whole way in, then change the
 # settings between phases the way an administrator would ──

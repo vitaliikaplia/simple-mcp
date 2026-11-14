@@ -79,7 +79,7 @@ smcp_test('abilities: built-in wploc_* step aside only when wp-loc shows abiliti
     smcp_assert_false(Simple_MCP_Tools_Abilities::provides_namespace([], 'wp-loc'));
 });
 
-smcp_test('abilities: the new matrix row is on for administrators and editors, also on sites saved before it existed', function () {
+smcp_test('abilities: on a new install the row is on for administrators and editors; a saved row without the key takes the role default', function () {
     smcp_assert_true(in_array('abilities', Simple_MCP::PERMS, true));
     smcp_assert_true(Simple_MCP::role_defaults('administrator')['abilities']);
     smcp_assert_true(Simple_MCP::role_defaults('editor')['abilities']);
@@ -98,4 +98,31 @@ smcp_test('abilities: the new matrix row is on for administrators and editors, a
     smcp_assert_false($saved[1]['blocks']);
     smcp_assert_false($saved[2]['abilities'], 'author default stays off');
     smcp_assert_same(Simple_MCP::PERMS, array_keys($saved[0]), 'every permission is present, in order');
+});
+
+smcp_test('abilities: a site upgraded from before 2.7.1 is told apart from a new install', function () {
+    foreach (['2.5.3', '2.6.0', '2.7.0', '1.3.0'] as $v) smcp_assert_true(Simple_MCP::predates_abilities($v, []), "upgraded from $v");
+    foreach (['2.7.1', '2.7.2', '2.8.0', '3.0.0'] as $v) smcp_assert_false(Simple_MCP::predates_abilities($v, []), "already on $v");
+    smcp_assert_false(Simple_MCP::predates_abilities(false, []), 'a new install has no version stamp yet');
+    smcp_assert_false(Simple_MCP::predates_abilities('', ['enabled' => true, 'path' => 'simple-mcp']));
+    smcp_assert_true(Simple_MCP::predates_abilities(false, ['wp_cli_enabled' => true]), 'settings of the versions before the stamp');
+    smcp_assert_true(Simple_MCP::predates_abilities(false, ['modules' => []]));
+});
+
+smcp_test('abilities: on an upgraded site the row stays off until the administrator turns it on', function () {
+    $off = smcp_with_options(['abilities_default_off' => true], function () {
+        return [Simple_MCP::role_perms_raw('administrator'), Simple_MCP::role_perms_raw('editor')];
+    });
+    smcp_assert_false($off[0]['abilities'], 'never-saved matrix: administrator default off');
+    smcp_assert_false($off[1]['abilities'], 'editor too');
+    smcp_assert_true($off[0]['mcp'] && $off[0]['wp_cli'] && $off[0]['blocks'], 'every other default unchanged');
+    $saved = smcp_with_options(['abilities_default_off' => true, 'roles' => [
+        'administrator' => ['mcp' => true, 'blocks' => true, 'wploc' => true, 'content' => true, 'wp_cli' => true, 'server_ops' => false],
+        'editor'        => ['mcp' => true, 'abilities' => true],
+    ]], function () {
+        return [Simple_MCP::role_perms_raw('administrator'), Simple_MCP::role_perms_raw('editor')];
+    });
+    smcp_assert_false($saved[0]['abilities'], 'a row saved before 2.7.0 (no key) stays off');
+    smcp_assert_true($saved[1]['abilities'], 'once the administrator turns it on, it is on');
+    smcp_assert_true(smcp_with_options([], function () { return Simple_MCP::role_perms_raw('administrator')['abilities']; }), 'a new install: on for administrators');
 });

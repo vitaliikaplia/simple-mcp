@@ -156,6 +156,15 @@ class Simple_MCP_Admin {
             <p class="description">Abilities API з'явився у WordPress 6.9 — на цьому сайті його немає, тож інструментів інших плагінів агент не бачить.</p>
             <?php return; endif;
         $scan = Simple_MCP_Tools_Abilities::scan();
+        if (Simple_MCP::opt('abilities_default_off')):
+            $on = [];
+            foreach (array_keys(wp_roles()->roles) as $slug) {
+                if (!empty(Simple_MCP::role_perms($slug)['abilities'])) $on[] = translate_user_role(wp_roles()->roles[$slug]['name']);
+            }
+            if (!$on): ?>
+                <div class="notice notice-info inline" style="max-width:820px"><p>Сайт оновлено з версії до <?php echo esc_html(Simple_MCP::ABILITIES_SINCE); ?>, тож інструменти плагінів і теми тут вимкнені для всіх ролей — агент бачить рівно те, що й до оновлення. Щоб їх показати, увімкни рядок «Інструменти плагінів і теми» в матриці вище.</p></div>
+            <?php endif;
+        endif;
         ?>
         <p class="description" style="max-width:820px">
             Інші плагіни й тема додають агенту свої інструменти як <strong>WordPress Abilities</strong> (<code>wp_register_ability</code>) з позначкою
