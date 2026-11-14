@@ -12,7 +12,7 @@ class Simple_MCP {
     const USER_KEY_CREATED = 'simple_mcp_key_created';  // timestamp генерації ключа (user meta)
 
     /** Дозволи, якими керує матриця ролей (порядок = порядок рядків у таблиці) */
-    const PERMS = ['mcp', 'blocks', 'wploc', 'content', 'wp_cli', 'server_ops'];
+    const PERMS = ['mcp', 'blocks', 'wploc', 'content', 'abilities', 'wp_cli', 'server_ops'];
 
     /** Дефолтні налаштування */
     static function defaults() {
@@ -51,16 +51,16 @@ class Simple_MCP {
 
     /**
      * Дзеркальні дефолти для ролі: administrator — усе (server ops off, як і раніше),
-     * editor — контент+блоки+мультимовність, author — лише ядро (нативні caps обмежать
-     * його своїми постами), решта (включно з кастомними ролями) — MCP вимкнено.
+     * editor — контент+блоки+мультимовність+інструменти плагінів, author — лише ядро (нативні caps
+     * обмежать його своїми постами), решта (включно з кастомними ролями) — MCP вимкнено.
      */
     static function role_defaults($role) {
         $off = array_fill_keys(self::PERMS, false);
         switch ($role) {
             case 'administrator':
-                return ['mcp' => true, 'blocks' => true, 'wploc' => true, 'content' => true, 'wp_cli' => true, 'server_ops' => false];
+                return ['mcp' => true, 'blocks' => true, 'wploc' => true, 'content' => true, 'abilities' => true, 'wp_cli' => true, 'server_ops' => false];
             case 'editor':
-                return ['mcp' => true, 'blocks' => true, 'wploc' => true, 'content' => true] + $off;
+                return ['mcp' => true, 'blocks' => true, 'wploc' => true, 'content' => true, 'abilities' => true] + $off;
             case 'author':
                 return ['mcp' => true] + $off;
             default:
@@ -74,12 +74,20 @@ class Simple_MCP {
         return $r && $r->has_cap('manage_options');
     }
 
-    /** Збережені значення матриці для ролі (або дефолти) — БЕЗ каскадних гейтів; для рендера адмінки. */
+    /**
+     * Збережені значення матриці для ролі (або дефолти) — БЕЗ каскадних гейтів; для рендера адмінки.
+     * Дозвіл, якого в збереженому рядку ще немає (з'явився в новішій версії, напр. abilities у 2.7.0),
+     * бере дефолт ролі — без міграції; після першого «Зберегти» він стає явним.
+     */
     static function role_perms_raw($role) {
         $saved = self::opt('roles', []);
-        return (isset($saved[$role]) && is_array($saved[$role]))
-            ? array_merge(array_fill_keys(self::PERMS, false), array_map('boolval', $saved[$role]))
-            : self::role_defaults($role);
+        if (!isset($saved[$role]) || !is_array($saved[$role])) return self::role_defaults($role);
+        $defaults = self::role_defaults($role);
+        $p = [];
+        foreach (self::PERMS as $perm) {
+            $p[$perm] = array_key_exists($perm, $saved[$role]) ? (bool) $saved[$role][$perm] : (bool) ($defaults[$perm] ?? false);
+        }
+        return $p;
     }
 
     /** Server ops заблоковані для всіх ролей, коли wp-config забороняє зміни файлів (DISALLOW_FILE_MODS). */

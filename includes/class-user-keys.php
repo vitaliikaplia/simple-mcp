@@ -43,6 +43,7 @@ class Simple_MCP_User_Keys {
             'blocks'     => 'Блоки',
             'wploc'      => 'Мультимовність',
             'content'    => 'Контент і дискавері',
+            'abilities'  => 'Інструменти плагінів і теми',
             'wp_cli'     => 'wp_cli (god-mode)',
             'server_ops' => 'Серверні операції',
         ];

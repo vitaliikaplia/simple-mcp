@@ -47,6 +47,7 @@ class Simple_MCP_Admin {
             'blocks'     => ['Блоки', 'block_get / list_block_fields / block_update / block_batch / insert / move / remove / replace'],
             'wploc'      => ['Мультимовність', 'wploc_get_translations / link / create'],
             'content'    => ['Контент і дискавері', 'create_post / render_post / safe_delete / describe_site · term_list / term_create / term_update'],
+            'abilities'  => ['Інструменти плагінів і теми', 'WordPress Abilities, які інші плагіни й тема позначили для MCP (meta.mcp.public). Права кожного інструмента перевіряє сам плагін — нативними правами WordPress.'],
             'wp_cli'     => ['wp_cli (god-mode)', 'Прямий WP-CLI. WP-CLI не перевіряє ролі (повний доступ до БД) — тому лише для ролей з manage_options.'],
             'server_ops' => ['Серверні операції', 'wp-config + plugin/theme install/update/delete через wp_cli. Діє лише разом з увімкненим wp_cli.'],
         ];
@@ -105,6 +106,8 @@ class Simple_MCP_Admin {
             foreach (Simple_MCP::PERMS as $perm) $p[$perm] = !empty($row[$perm]);
             // Немає системи багатомовності → чекбокс disabled і не постить: зберігаємо попередній намір
             if (!$ml) $p['wploc'] = (bool) Simple_MCP::role_perms_raw($slug)['wploc'];
+            // Немає Abilities API (WordPress < 6.9) → так само
+            if (!Simple_MCP_Tools_Abilities::available()) $p['abilities'] = (bool) Simple_MCP::role_perms_raw($slug)['abilities'];
             // DISALLOW_FILE_MODS блокує server ops (чекбокс disabled) — так само зберігаємо намір
             if (method_exists('Simple_MCP', 'server_ops_locked') && Simple_MCP::server_ops_locked()) {
                 $p['server_ops'] = (bool) Simple_MCP::role_perms_raw($slug)['server_ops'];
@@ -143,6 +146,52 @@ class Simple_MCP_Admin {
         Simple_MCP_Audit::clear();
         wp_safe_redirect(admin_url('options-general.php?page=simple-mcp&log_cleared=1') . '#simple-mcp-log');
         exit;
+    }
+
+    /** Блок «Інструменти плагінів і теми»: які WordPress Abilities бачить агент і чому інші приховані */
+    static function render_abilities() {
+        ?>
+        <h2 id="simple-mcp-abilities">Інструменти плагінів і теми</h2>
+        <?php if (!Simple_MCP_Tools_Abilities::available()): ?>
+            <p class="description">Abilities API з'явився у WordPress 6.9 — на цьому сайті його немає, тож інструментів інших плагінів агент не бачить.</p>
+            <?php return; endif;
+        $scan = Simple_MCP_Tools_Abilities::scan();
+        ?>
+        <p class="description" style="max-width:820px">
+            Інші плагіни й тема додають агенту свої інструменти як <strong>WordPress Abilities</strong> (<code>wp_register_ability</code>) з позначкою
+            <code>'meta' =&gt; ['mcp' =&gt; ['public' =&gt; true]]</code> (або <code>'public' =&gt; true</code>) — так само, як для офіційного WordPress MCP Adapter.
+            Агент бачить їх, якщо роль має «Інструменти плагінів і теми» в матриці вище; права кожного виклику перевіряє сам плагін, а журнал і ліміти — Simple MCP.
+        </p>
+        <?php if ($scan['tools']): ?>
+            <table class="widefat striped" style="max-width:980px">
+                <thead><tr><th>Інструмент для агента</th><th>Ability</th><th>Що робить</th><th>Вид</th></tr></thead>
+                <tbody>
+                <?php foreach ($scan['tools'] as $tool => $ability):
+                    $ann  = Simple_MCP_Tools_Abilities::annotations((array) $ability->get_meta());
+                    $kind = $ann['readOnlyHint'] ? 'лише читання' : ($ann['destructiveHint'] ? 'змінює (може видаляти)' : 'змінює');
+                ?>
+                    <tr>
+                        <td><code><?php echo esc_html($tool); ?></code></td>
+                        <td><code><?php echo esc_html($ability->get_name()); ?></code></td>
+                        <td><?php echo esc_html($ability->get_label()); ?></td>
+                        <td><?php echo esc_html($kind); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php else: ?>
+            <p class="description">Жоден плагін чи тема ще не позначили свої abilities для MCP.</p>
+        <?php endif; ?>
+        <?php if ($scan['hidden']): ?>
+            <details style="margin-top:8px;max-width:980px">
+                <summary style="cursor:pointer">Не показуються агенту: <?php echo (int) count($scan['hidden']); ?></summary>
+                <ul style="margin:6px 0 0 18px;list-style:disc">
+                    <?php foreach ($scan['hidden'] as $name => $why): ?>
+                        <li><code><?php echo esc_html($name); ?></code> — <?php echo esc_html($why); ?></li>
+                    <?php endforeach; ?>
+                </ul>
+            </details>
+        <?php endif;
     }
 
     /** Блок «Підключення агентів через OAuth» у формі налаштувань + список підключених агентів */
@@ -341,6 +390,10 @@ class Simple_MCP_Admin {
                                     $disabled = true;
                                     $title    = 'Немає активної системи багатомовності (WP-LOC / WPML)';
                                 }
+                                if ($perm === 'abilities' && !Simple_MCP_Tools_Abilities::available()) {
+                                    $disabled = true;
+                                    $title    = 'Abilities API з\'явився у WordPress 6.9 — на цьому сайті його немає';
+                                }
                                 if ($perm === 'server_ops' && $ops_lock && !$disabled) {
                                     $disabled = true;
                                     $title    = 'Заблоковано: у wp-config задано DISALLOW_FILE_MODS';
@@ -361,6 +414,8 @@ class Simple_MCP_Admin {
                     </tbody>
                 </table>
                 <p class="description">Кастомні ролі підтягуються автоматично. Нова роль за замовчуванням без MCP-доступу — увімкни свідомо. Якщо в користувача кілька ролей, його дозволи = об'єднання дозволів цих ролей.</p>
+
+                <?php self::render_abilities(); ?>
 
                 <?php self::render_oauth($o, $endpoint); ?>
 

@@ -92,6 +92,7 @@ foreach ([
     'includes/class-audit.php',
     'includes/class-tools.php',
     'includes/tools/class-simple-mcp-tools-blocks.php',
+    'includes/tools/class-simple-mcp-tools-abilities.php',
     'includes/class-simple-mcp-github-updater.php',
     'bin/release-lib.php',
 ] as $file) {

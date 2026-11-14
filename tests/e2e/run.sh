@@ -4,7 +4,8 @@
 # SIMPLE_MCP_ALLOW_INSECURE (plain-HTTP localhost), WP_DEBUG + WP_DEBUG_LOG on, WP_DEBUG_DISPLAY off, and an
 # administrator with user ID 1. Any warning, notice, deprecation or fatal error raised in the plugin's own files
 # (in the web requests or in the wp_cli subprocesses) fails the run. After the key smoke test, tests/e2e/oauth.php walks
-# the OAuth way in (switched on for it, then off again).
+# the OAuth way in (switched on for it, then off again), and tests/e2e/abilities.php calls other plugins' tools
+# (WordPress Abilities from tests/e2e/fixtures, installed as a mu-plugin for the run only).
 #
 #   tests/e2e/run.sh <wordpress-dir> [port]
 #   PHP=php8.1 WP="wp" tests/e2e/run.sh /tmp/wordpress 8089   # PHP serves the site, WP is the WP-CLI command
@@ -17,6 +18,12 @@ WPCLI=${WP:-wp}
 HERE=$(cd "$(dirname "$0")" && pwd)
 PLUGIN=$(cd "$HERE/../.." && pwd)
 LOGS=$(mktemp -d)
+# Test abilities (another plugin's tools through the WordPress Abilities API) as a mu-plugin, only for this run
+MU="$WP_DIR/wp-content/mu-plugins"
+MU_FIXTURE="$MU/smcp-test-abilities.php"
+mkdir -p "$MU"
+cp "$HERE/fixtures/smcp-test-abilities.php" "$MU_FIXTURE"
+trap 'rm -f "$MU_FIXTURE"' EXIT
 DEBUG_LOG="$WP_DIR/wp-content/debug.log"
 : > "$DEBUG_LOG"
 
@@ -28,13 +35,14 @@ KEY=$($WPCLI --path="$WP_DIR" eval 'echo "KEY=", Simple_MCP_Auth::generate_key_f
 "$PHP" -d error_reporting=E_ALL -d display_errors=0 -d log_errors=1 -d error_log="$LOGS/php-errors.log" \
     -S "127.0.0.1:$PORT" -t "$WP_DIR" "$HERE/router.php" > "$LOGS/server.log" 2>&1 &
 SERVER=$!
-trap 'kill "$SERVER" 2>/dev/null || true' EXIT
+trap 'kill "$SERVER" 2>/dev/null || true; rm -f "$MU_FIXTURE"' EXIT
 for _ in $(seq 1 50); do
     curl -s -o /dev/null "http://127.0.0.1:$PORT/wp-login.php" && break
     sleep 0.2
 done
 
 "$PHP" "$HERE/smoke.php" "http://127.0.0.1:$PORT/simple-mcp" "$KEY" "$VERSION"
+"$PHP" "$HERE/abilities.php" "http://127.0.0.1:$PORT/simple-mcp" "$KEY"
 
 # ── OAuth (off by default): switch it on, sign the administrator in, walk the whole way in, then change the
 # settings between phases the way an administrator would ──
