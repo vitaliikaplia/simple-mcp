@@ -130,6 +130,38 @@ class Simple_MCP_Tools_Wploc {
     static function ok($d) { return Simple_MCP_Tools::ok($d); }
     static function err($m) { return Simple_MCP_Tools::err($m); }
 
+    // ── Which translation tools the agent sees ───────────────────────────
+
+    /**
+     * Do the built-in wploc_* tools step aside for the current user? Yes when WP-LOC (1.13.1+) shows its own
+     * translation tools as WordPress Abilities (wp-loc/…) and the user has both «Мультимовність» and
+     * «Інструменти плагінів і теми» — then the agent gets wp-loc-get-translations & co. instead. Filter
+     * simple_mcp_hide_builtin_wploc (bool) keeps the built-ins for everyone.
+     */
+    static function builtin_hidden() {
+        return class_exists('Simple_MCP_Tools_Abilities') && class_exists('Simple_MCP_Auth')
+            && Simple_MCP_Auth::perm('wploc') && Simple_MCP_Auth::perm('abilities')
+            && (bool) apply_filters('simple_mcp_hide_builtin_wploc', Simple_MCP_Tools_Abilities::provides('wp-loc'));
+    }
+
+    /**
+     * Name of a translation tool as the current user's agent sees it, for texts of other tools:
+     * tool('get_translations') → "wp-loc-get-translations" (WP-LOC's ability), "wploc_get_translations" (built-in),
+     * or null when the agent has no translation tools (no «Мультимовність», or no multilingual plugin).
+     */
+    static function tool($action) {
+        $action = (string) $action;
+        if (!class_exists('Simple_MCP_Auth') || !Simple_MCP_Auth::perm('wploc')) return null;
+        if (self::builtin_hidden()) return 'wp-loc-' . str_replace('_', '-', $action);
+        return self::system() ? 'wploc_' . $action : null;
+    }
+
+    /** "$before<tool>$after" when the agent has that translation tool, '' otherwise — for optional hints in other tools' texts. */
+    static function hint($action, $before, $after = '') {
+        $tool = self::tool($action);
+        return $tool === null ? '' : $before . $tool . $after;
+    }
+
     // ── System & languages ───────────────────────────────────────────────
 
     /** Which multilingual system is active: 'wp-loc' | 'wpml' | null. */
@@ -780,7 +812,7 @@ class Simple_MCP_Tools_Wploc {
         try {
             $others = array_values(array_filter(self::group($trid, $ref['etype']), function ($r) use ($ref) { return $r['element_id'] !== $ref['eid']; }));
             foreach (self::rows_in_lang($others, $code) as $o) {
-                return new WP_Error('slot_taken', 'The "' . $code . '" slot of group ' . $trid . ' is now held by element ' . self::public_id($o['element_id'], $ref['etype']) . '; relink manually with wploc_link_translation.');
+                return new WP_Error('slot_taken', 'The "' . $code . '" slot of group ' . $trid . ' is now held by element ' . self::public_id($o['element_id'], $ref['etype']) . self::hint('link_translation', '; relink manually with ') . '.');
             }
             $was_original = !array_key_exists('source_language', (array) $prev) || $prev['source_language'] === null;
             $orig = self::original_row($others);
@@ -820,7 +852,7 @@ class Simple_MCP_Tools_Wploc {
                 $others = array_filter(self::group($row['trid'], $etype), function ($r) use ($p) { return $r['element_id'] !== (int) $p->ID; });
                 if ($others) {
                     return new WP_Error('already_registered', 'Post #' . $p->ID . ' is already registered as "' . $row['language'] . '" with translations (trid '
-                        . $row['trid'] . '); relink it with wploc_link_translation instead.');
+                        . $row['trid'] . ')' . self::hint('link_translation', '; relink it with ', ' instead') . '.');
                 }
                 self::set_lang($p->ID, $etype, $l['code'], $row['trid'], null);
             } elseif (!$row) {
@@ -858,7 +890,7 @@ class Simple_MCP_Tools_Wploc {
                 $others = array_filter(self::group($row['trid'], $etype), function ($r) use ($eid) { return $r['element_id'] !== $eid; });
                 if ($others) {
                     return new WP_Error('already_registered', 'Term ' . $tr['term_id'] . ' is already registered as "' . $row['language'] . '" with translations (trid '
-                        . $row['trid'] . '); relink it with wploc_link_translation instead.');
+                        . $row['trid'] . ')' . self::hint('link_translation', '; relink it with ', ' instead') . '.');
                 }
                 self::set_lang($eid, $etype, $l['code'], $row['trid'], null);
             } elseif (!$row) {

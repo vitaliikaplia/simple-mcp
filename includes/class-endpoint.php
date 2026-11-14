@@ -368,7 +368,7 @@ class Simple_MCP_Endpoint {
         }
         $r[] = 'acf_update writes post/user/term/comment/options ACF fields' . ($blocks ? ', NOT fields inside blocks (block_update).' : '.');
         if ($ml) {
-            $r[] = 'Multilingual (' . $ml . '): each language is a SEPARATE post/term ID linked by a trid — resolve the right one with wploc_get_translations before editing.';
+            $r[] = 'Multilingual (' . $ml . '): each language is a SEPARATE post/term ID linked by a trid' . (class_exists('Simple_MCP_Tools_Wploc') ? Simple_MCP_Tools_Wploc::hint('get_translations', ' — resolve the right one with ', ' before editing') : '') . '.';
         }
         if ($content) {
             $r[] = 'On an unfamiliar site call describe_site first (blocks, fields, options, post types, languages differ per site; cached 1 h, refresh:true after schema changes).';

@@ -19,7 +19,7 @@ class Simple_MCP_Tools_Content {
         return [
             'create_post' => [
                 'title'       => 'Create post',
-                'description' => 'Create a post/page/CPT item with a block-safe body in one call. post_type must be an editable (show_ui) content type — not attachments (use upload_media) or WordPress/ACF internals — and your user needs its create_posts capability (types that disable it, e.g. log CPTs, are refused); publish/private/future also need publish_posts, and future needs a date in the future (site time). parent must be an existing, readable item of the same hierarchical type; thumbnail an existing image attachment you can read. content (Gutenberg block markup) is wp_slash-ed and verified (content_verified; kses_note explains a mismatch caused by missing unfiltered_html). meta is written after the insert key by key through the native add/edit_post_meta capability checks — protected "_" keys are refused unless registered with an auth_callback — and refused keys are listed in meta_skipped (for ACF post fields use acf_update instead). On a multilingual site a new item of a translatable post type is always registered in a language — lang (an active language, or a disabled one with allow_inactive:true), else the default language — so wp-loc never auto-creates sibling drafts for it later, and its slug is made unique within that language. Returns {id, status, language, content_verified, etag, url, …}. Fill ACF block fields afterwards with block_update; make a translated copy with wploc_create_translation.',
+                'description' => 'Create a post/page/CPT item with a block-safe body in one call. post_type must be an editable (show_ui) content type — not attachments (use upload_media) or WordPress/ACF internals — and your user needs its create_posts capability (types that disable it, e.g. log CPTs, are refused); publish/private/future also need publish_posts, and future needs a date in the future (site time). parent must be an existing, readable item of the same hierarchical type; thumbnail an existing image attachment you can read. content (Gutenberg block markup) is wp_slash-ed and verified (content_verified; kses_note explains a mismatch caused by missing unfiltered_html). meta is written after the insert key by key through the native add/edit_post_meta capability checks — protected "_" keys are refused unless registered with an auth_callback — and refused keys are listed in meta_skipped (for ACF post fields use acf_update instead). On a multilingual site a new item of a translatable post type is always registered in a language — lang (an active language, or a disabled one with allow_inactive:true), else the default language — so wp-loc never auto-creates sibling drafts for it later, and its slug is made unique within that language. Returns {id, status, language, content_verified, etag, url, …}. Fill ACF block fields afterwards with block_update' . Simple_MCP_Tools_Wploc::hint('create_translation', '; make a translated copy with ') . '.',
                 'inputSchema' => ['type' => 'object', 'additionalProperties' => false,
                     'properties' => [
                         'post_type'  => ['type' => 'string'],
@@ -85,7 +85,7 @@ class Simple_MCP_Tools_Content {
             ],
             'term_create' => [
                 'title'       => 'Create term',
-                'description' => 'Create a taxonomy term (native wp_insert_term). Capability as in the block editor / REST API: the taxonomy\'s edit_terms for hierarchical taxonomies, assign_terms for flat ones (tags). parent must be an existing term of the same hierarchical taxonomy (in the same language on multilingual sites). On a multilingual site a term of a translatable taxonomy is created and registered in lang (an active language, or a disabled one with allow_inactive:true; default: the site default language); no copies in other languages are created — add them with wploc_create_translation. A duplicate name/slug is an error that names the existing term_id. Returns the new term.',
+                'description' => 'Create a taxonomy term (native wp_insert_term). Capability as in the block editor / REST API: the taxonomy\'s edit_terms for hierarchical taxonomies, assign_terms for flat ones (tags). parent must be an existing term of the same hierarchical taxonomy (in the same language on multilingual sites). On a multilingual site a term of a translatable taxonomy is created and registered in lang (an active language, or a disabled one with allow_inactive:true; default: the site default language); no copies in other languages are created' . Simple_MCP_Tools_Wploc::hint('create_translation', ' — add them with ') . '. A duplicate name/slug is an error that names the existing term_id. Returns the new term.',
                 'inputSchema' => ['type' => 'object', 'additionalProperties' => false,
                     'properties' => [
                         'taxonomy'    => ['type' => 'string'],
@@ -164,7 +164,7 @@ class Simple_MCP_Tools_Content {
             if (!Simple_MCP_Tools::can_read_post($parent)) return Simple_MCP_Tools::err_cap('read parent #' . $parent_id);
             $plang = Simple_MCP_Tools_Posts::post_lang($parent);
             if ($lang && $plang && $plang !== $lang['code']) {
-                $warnings[] = 'parent #' . $parent_id . ' is in "' . $plang . '", the new post in "' . $lang['code'] . '" — use the parent\'s "' . $lang['code'] . '" translation (wploc_get_translations)';
+                $warnings[] = 'parent #' . $parent_id . ' is in "' . $plang . '", the new post in "' . $lang['code'] . '" — use the parent\'s "' . $lang['code'] . '" translation' . Simple_MCP_Tools_Wploc::hint('get_translations', ' (', ')');
             }
         }
 
@@ -455,7 +455,7 @@ class Simple_MCP_Tools_Content {
                 $relinked = !is_wp_error($re) && (bool) Simple_MCP_Tools_Wploc::siblings($id, $etype);
             }
             return self::err('delete failed: WordPress (or a plugin hook) refused it; post #' . $id . ' is still "' . $after->post_status . '"'
-                . ($detached ? ($relinked ? ' and was relinked to its translations' : ' and is DETACHED from its translations ' . wp_json_encode($siblings) . ' — relink with wploc_link_translation') : ''));
+                . ($detached ? ($relinked ? ' and was relinked to its translations' : ' and is DETACHED from its translations ' . wp_json_encode($siblings) . Simple_MCP_Tools_Wploc::hint('link_translation', ' — relink with ')) : ''));
         }
 
         $left = [];
@@ -477,7 +477,7 @@ class Simple_MCP_Tools_Content {
         ];
         if ($detached) {
             $out['detached'] = ['trid' => $detached['trid'], 'language' => $detached['language']];
-            if ($outcome === 'trashed') $out['note'] = 'Restoring it from the trash will NOT relink it to its translations; its former group is stored in the _simple_mcp_detached meta — relink with wploc_link_translation.';
+            if ($outcome === 'trashed') $out['note'] = 'Restoring it from the trash will NOT relink it to its translations; its former group is stored in the _simple_mcp_detached meta' . Simple_MCP_Tools_Wploc::hint('link_translation', ' — relink with ') . '.';
         }
         if ($children) {
             $gone = array_values(array_filter(array_map('intval', $children), function ($cid) { clean_post_cache($cid); return !get_post($cid); }));

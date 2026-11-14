@@ -36,8 +36,7 @@ class Simple_MCP_Tools {
             if ($group === 'wploc' && !Simple_MCP::multilingual_system()) continue; // no wp-loc/WPML → hide
             // wp-loc сам показує свої інструменти через Abilities API → вбудовані wploc_* не дублюємо
             // (лише коли користувач бачить інструменти плагінів — інакше мультимовність зникла б зовсім)
-            if ($group === 'wploc' && class_exists('Simple_MCP_Tools_Abilities') && Simple_MCP_Auth::perm('abilities')
-                && apply_filters('simple_mcp_hide_builtin_wploc', Simple_MCP_Tools_Abilities::provides('wp-loc'))) continue;
+            if ($group === 'wploc' && Simple_MCP_Tools_Wploc::builtin_hidden()) continue;
             if ($group === 'abilities' && !Simple_MCP_Tools_Abilities::available()) continue;
             if (class_exists($cls) && method_exists($cls, 'defs')) {
                 $reg = array_merge($reg, (array) $cls::defs());

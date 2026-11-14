@@ -45,7 +45,7 @@ class Simple_MCP_Admin {
         return [
             'mcp'        => ['MCP-доступ (ядро контенту)', 'get/update_post · find_posts · set_post_terms · revision_list / revision_restore · acf_get/acf_update · upload_* · cache_flush. Вимкнено — роль взагалі не має доступу до MCP.'],
             'blocks'     => ['Блоки', 'block_get / list_block_fields / block_update / block_batch / insert / move / remove / replace'],
-            'wploc'      => ['Мультимовність', 'wploc_get_translations / link / create'],
+            'wploc'      => ['Мультимовність', 'wploc_get_translations / link / create; з WP-LOC 1.13.1 і «Інструментами плагінів і теми» — замість них wp-loc-get-translations / link / create. Вимкнено — інструментів перекладів немає жодних.'],
             'content'    => ['Контент і дискавері', 'create_post / render_post / safe_delete / describe_site · term_list / term_create / term_update'],
             'abilities'  => ['Інструменти плагінів і теми', 'WordPress Abilities, які інші плагіни й тема позначили для MCP (meta.mcp.public). Права кожного інструмента перевіряє сам плагін — нативними правами WordPress.'],
             'wp_cli'     => ['wp_cli (god-mode)', 'Прямий WP-CLI. WP-CLI не перевіряє ролі (повний доступ до БД) — тому лише для ролей з manage_options.'],
@@ -182,7 +182,10 @@ class Simple_MCP_Admin {
                     <tr>
                         <td><code><?php echo esc_html($tool); ?></code></td>
                         <td><code><?php echo esc_html($ability->get_name()); ?></code></td>
-                        <td><?php echo esc_html($ability->get_label()); ?></td>
+                        <td><?php echo esc_html($ability->get_label()); ?><?php
+                            $need = Simple_MCP_Tools_Abilities::required_perm($ability->get_name());
+                            $rows = self::perm_rows();
+                            if ($need !== null && isset($rows[$need])): ?><br><span class="description">потрібен ще рядок «<?php echo esc_html($rows[$need][0]); ?>»</span><?php endif; ?></td>
                         <td><?php echo esc_html($kind); ?></td>
                     </tr>
                 <?php endforeach; ?>

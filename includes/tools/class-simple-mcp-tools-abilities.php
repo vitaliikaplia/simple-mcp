@@ -22,12 +22,17 @@
  *              без схеми — порожній об'єкт;
  *   annotations — readonly/destructive/idempotent (або readOnlyHint/…, як приймає адаптер) → MCP-підказки.
  * Коли wp-loc реєструє власні abilities (wp-loc/…), вбудовані wploc_* Simple MCP ховає (Simple_MCP_Tools::registry).
+ * Abilities просторів імен із NAMESPACE_PERMS агент бачить лише з відповідним рядком матриці (wp-loc/… — ще й
+ * «Мультимовність», як і вбудовані wploc_*, яких вони заступають).
  */
 if (!defined('ABSPATH')) exit;
 
 class Simple_MCP_Tools_Abilities {
 
     const DESC_MAX = 2048;
+    /** Простір імен ability → рядок матриці, потрібний понад «Інструменти плагінів і теми» */
+    const NAMESPACE_PERMS = ['wp-loc' => 'wploc'];
+
     /** WP-ключі схем REST, яких не знає JSON Schema */
     const WP_ONLY_KEYS = ['context', 'arg_options', 'readonly', 'sanitize_callback', 'validate_callback'];
 
@@ -115,6 +120,12 @@ class Simple_MCP_Tools_Abilities {
         ];
     }
 
+    /** Рядок матриці, який потрібен для ability понад «Інструменти плагінів і теми» ('wploc' для wp-loc/…), або null */
+    static function required_perm($ability_name) {
+        $ns = strstr((string) $ability_name, '/', true);
+        return ($ns !== false && isset(self::NAMESPACE_PERMS[$ns])) ? self::NAMESPACE_PERMS[$ns] : null;
+    }
+
     /** Чи серед імен abilities є хоч одна з простору імен $ns («wp-loc» для «wp-loc/…») */
     static function provides_namespace(array $ability_names, $ns) {
         foreach ($ability_names as $n) {
@@ -167,6 +178,8 @@ class Simple_MCP_Tools_Abilities {
     static function defs() {
         $defs = [];
         foreach (self::scan()['tools'] as $tool => $ability) {
+            $need = self::required_perm($ability->get_name());
+            if ($need !== null && !Simple_MCP_Auth::perm($need)) continue; // напр. wp-loc/… без «Мультимовності»
             $meta = (array) $ability->get_meta();
             [$schema, $wrapped] = self::input_shape((array) self::normalize_schema((array) $ability->get_input_schema()));
             $label = trim((string) $ability->get_label());

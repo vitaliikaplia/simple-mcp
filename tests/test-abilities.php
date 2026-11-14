@@ -79,6 +79,33 @@ smcp_test('abilities: built-in wploc_* step aside only when wp-loc shows abiliti
     smcp_assert_false(Simple_MCP_Tools_Abilities::provides_namespace([], 'wp-loc'));
 });
 
+smcp_test('abilities: wp-loc/… abilities also need the «Мультимовність» row, other namespaces only «Інструменти плагінів і теми»', function () {
+    smcp_assert_same('wploc', Simple_MCP_Tools_Abilities::required_perm('wp-loc/get-translations'));
+    smcp_assert_same('wploc', Simple_MCP_Tools_Abilities::required_perm('wp-loc/create-translation'));
+    smcp_assert_same(null, Simple_MCP_Tools_Abilities::required_perm('wp-locx/get-translations'), 'a namespace that only starts the same');
+    smcp_assert_same(null, Simple_MCP_Tools_Abilities::required_perm('smcp-test/echo'));
+    smcp_assert_same(null, Simple_MCP_Tools_Abilities::required_perm('no-slash'));
+});
+
+smcp_test('abilities: other tools name a translation tool only when the agent has one', function () {
+    $perms = new ReflectionProperty('Simple_MCP_Auth', 'perms');
+    $perms->setAccessible(true);
+    $was = $perms->getValue();
+    try {
+        $perms->setValue(null, null);
+        smcp_assert_false(Simple_MCP_Tools_Wploc::builtin_hidden(), 'outside an MCP request nothing is hidden');
+        smcp_assert_same(null, Simple_MCP_Tools_Wploc::tool('get_translations'), 'no «Мультимовність» — no translation tool to name');
+        smcp_assert_same('', Simple_MCP_Tools_Wploc::hint('link_translation', ' — relink with '), 'and the hint is left out');
+        $perms->setValue(null, array_fill_keys(Simple_MCP::PERMS, true));
+        // no Abilities API and no multilingual plugin here: nothing is hidden and there is no tool to name
+        smcp_assert_false(Simple_MCP_Tools_Wploc::builtin_hidden(), 'no wp-loc abilities — built-ins are not hidden');
+        smcp_assert_same(null, Simple_MCP_Tools_Wploc::tool('create_translation'), 'no multilingual plugin — no translation tool');
+        smcp_assert_same('', Simple_MCP_Tools_Wploc::hint('create_translation', '; make a translated copy with '));
+    } finally {
+        $perms->setValue(null, $was);
+    }
+});
+
 smcp_test('abilities: on a new install the row is on for administrators and editors; a saved row without the key takes the role default', function () {
     smcp_assert_true(in_array('abilities', Simple_MCP::PERMS, true));
     smcp_assert_true(Simple_MCP::role_defaults('administrator')['abilities']);
