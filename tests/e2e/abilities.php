@@ -72,9 +72,26 @@ if ($mode === 'hidden') {
     exit(0);
 }
 
-foreach (['smcp-test-echo', 'smcp-test-shout', 'smcp-test-site-name', 'smcp-test-forbidden', 'smcp-test-fails'] as $n) {
+foreach (['smcp-test-echo', 'smcp-test-shout', 'smcp-test-site-name', 'smcp-test-options', 'smcp-test-forbidden', 'smcp-test-fails'] as $n) {
     check(isset($tools[$n]), "the ability marked for MCP is the tool $n", array_keys($tools));
 }
+
+// An object schema never lists "default": [] (WordPress declares 'default' => array()); read the raw JSON, where {} ≠ []
+$bad = [];
+$walk = function ($node, $path) use (&$walk, &$bad) {
+    if (is_object($node)) {
+        if (($node->type ?? null) === 'object' && property_exists($node, 'default') && is_array($node->default)) $bad[] = $path;
+        foreach (get_object_vars($node) as $k => $v) $walk($v, "$path.$k");
+    } elseif (is_array($node)) {
+        foreach ($node as $i => $v) $walk($v, "$path[$i]");
+    }
+};
+$listed = [];
+foreach ((json_decode($raw)->result->tools ?? []) as $t) $listed[$t->name] = $t;
+foreach ($listed as $name => $t) $walk($t->inputSchema ?? null, $name);
+check(!$bad, 'no object schema in tools/list has an array default (core abilities included)', $bad);
+check(json_encode($listed['smcp-test-options']->inputSchema->default ?? null) === '{}', "the ability's 'default' => array() is listed as {}",
+    json_encode($listed['smcp-test-options']->inputSchema ?? null));
 check(!isset($tools['smcp-test-hidden']) && !isset($tools['smcp-test-opted-out']), 'abilities without the MCP mark (or opted out) are not shown');
 check(isset($tools['get_post']), 'the built-in tools are still there');
 
@@ -96,6 +113,10 @@ check($err && stripos($text, 'invalid input') !== false, 'missing required input
 check($err, 'an argument the ability does not know is refused by its schema', $text);
 [$err, $text] = call_tool('smcp-test-shout', ['input' => 'hi']);
 check(!$err && $text === 'HI', 'a wrapped string input reaches the ability as a string', $text);
+[$err, $text, $sc] = call_tool('smcp-test-options', []);
+check(!$err && ($sc['verbose'] ?? null) === false, 'an object schema with an empty default runs without arguments', $text);
+[$err, $text, $sc] = call_tool('smcp-test-options', ['verbose' => true]);
+check(!$err && ($sc['verbose'] ?? null) === true, '… and with them', $text);
 [$err, $text, $sc] = call_tool('smcp-test-site-name', []);
 check(!$err && isset($sc['name']), 'an ability without an input schema runs', $text);
 [$err, $text] = call_tool('smcp-test-forbidden', []);

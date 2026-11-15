@@ -89,7 +89,6 @@ smcp_test('abilities: wp-loc/… abilities also need the «Мультимовн�
 
 smcp_test('abilities: other tools name a translation tool only when the agent has one', function () {
     $perms = new ReflectionProperty('Simple_MCP_Auth', 'perms');
-    $perms->setAccessible(true);
     $was = $perms->getValue();
     try {
         $perms->setValue(null, null);

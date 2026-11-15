@@ -326,6 +326,14 @@ class Simple_MCP_Endpoint {
         return $v === '' ? null : $v;
     }
 
+    /**
+     * 400 на непідтримуваний MCP-Protocol-Version — навмисно із загальною -32600, а не з
+     * UnsupportedProtocolVersionError (-32022) ревізії 2026-07-28. Клієнт 2026-07-28 (Claude так робить) спершу
+     * шле сучасний запит без initialize; «впізнана сучасна помилка» (-32022) означає для нього сучасний сервер,
+     * і він повторює сучасний запит замість initialize. Будь-що інше означає legacy-сервер: клієнт переходить на
+     * initialize (specification/2026-07-28/basic/versioning, матриця сумісності «Dual-era | Legacy»). Ми — legacy
+     * (2025-11-25 і старіші), тож -32022 зламав би підключення. Поміняти разом із підтримкою 2026-07-28.
+     */
     private static function unsupported_version($v) {
         return self::error(null, -32600, 'Unsupported MCP-Protocol-Version "' . Simple_MCP_Audit::cut($v, 40) . '" (supported: ' . implode(', ', self::SUPPORTED) . ')');
     }

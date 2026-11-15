@@ -50,6 +50,19 @@ add_action('wp_abilities_api_init', function () {
         'meta'             => ['mcp' => ['public' => true], 'annotations' => ['readonly' => true]],
     ]);
 
+    // An object input schema with 'default' => array(), as WordPress core/get-site-info and Simple Storage declare it
+    wp_register_ability('smcp-test/options', $base + [
+        'label'            => 'Options',
+        'description'      => 'Optional flags only.',
+        'input_schema'     => [
+            'type'       => 'object',
+            'properties' => ['verbose' => ['type' => 'boolean', 'default' => false]],
+            'default'    => [],
+        ],
+        'execute_callback' => function ($input = []) { return ['verbose' => !empty($input['verbose'])]; },
+        'meta'             => ['mcp' => ['public' => true], 'annotations' => ['readonly' => true]],
+    ]);
+
     // Refused by its own permission check (a WP_Error, which core would also turn into a _doing_it_wrong notice)
     wp_register_ability('smcp-test/forbidden', [
         'category'            => 'smcp-test',

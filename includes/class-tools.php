@@ -245,12 +245,19 @@ class Simple_MCP_Tools {
      * 10.11.2026). Тож список без additionalProperties, порожнього required і довжини поруч з enum, а
      * 'type' => [a, b] стає anyOf. Виклик і далі перевіряється повною схемою (validate_args): зайвий
      * аргумент відхиляється з переліком дозволених.
+     * Значення default / const / enum / examples — дані, а не схеми: їх не чистимо. Порожній масив PHP у default
+     * чи const об'єктної схеми віддаємо як {}: WordPress (core/get-site-info …) і плагіни оголошують
+     * 'default' => array(), і без цього tools/list мав би "type":"object" поруч із "default":[].
      */
     static function portable($schema) {
         if (!is_array($schema)) return $schema;
         if (array_is_list($schema)) return array_map([__CLASS__, 'portable'], $schema);
         $out = [];
         foreach ($schema as $key => $value) {
+            if (in_array($key, ['default', 'const', 'enum', 'examples'], true)) {
+                $out[$key] = ($value === [] && $key !== 'enum' && $key !== 'examples' && self::object_schema($schema)) ? new stdClass() : $value;
+                continue;
+            }
             if ($key === 'additionalProperties') continue;
             if ($key === 'required' && is_array($value) && !$value) continue;
             if (($key === 'maxLength' || $key === 'minLength') && isset($schema['enum'])) continue;
@@ -267,6 +274,13 @@ class Simple_MCP_Tools {
             $out[$key] = self::portable($value);
         }
         return $out;
+    }
+
+    /** Чи схема описує об'єкт (а не масив): type object, union з object без array, або лише properties */
+    private static function object_schema(array $schema) {
+        $type = $schema['type'] ?? null;
+        if (is_array($type)) return in_array('object', $type, true) && !in_array('array', $type, true);
+        return $type === 'object' || ($type === null && isset($schema['properties']));
     }
 
     /** Виклик інструмента (tools/call): валідація аргументів за inputSchema → callback → аудит */

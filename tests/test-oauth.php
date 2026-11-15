@@ -194,6 +194,27 @@ smcp_test('oauth: tools/list shows portable schemas; calls are still checked aga
     smcp_assert_same('{"type":"object","properties":{}}', json_encode(Simple_MCP_Tools::portable(['type' => 'object', 'properties' => []])));
 });
 
+smcp_test('tools: portable schemas keep default/const/enum as data; an empty default of an object schema is {}', function () {
+    // WordPress core/get-site-info and Simple Storage declare 'default' => array() on an object input schema
+    $p = Simple_MCP_Tools::portable(['type' => 'object', 'properties' => ['log' => ['type' => 'integer', 'default' => 10]], 'default' => []]);
+    smcp_assert_same('{"type":"object","properties":{"log":{"type":"integer","default":10}},"default":{}}', json_encode($p));
+    smcp_assert_same('{"type":"object","default":{}}', json_encode(Simple_MCP_Tools::portable(['type' => 'object', 'default' => []])));
+    smcp_assert_same('{"properties":{"a":{"type":"string"}},"default":{}}', json_encode(Simple_MCP_Tools::portable(['properties' => ['a' => ['type' => 'string']], 'default' => []])), 'properties without a type is an object too');
+    smcp_assert_same('{"anyOf":[{"type":"object"},{"type":"null"}],"default":{}}', json_encode(Simple_MCP_Tools::portable(['type' => ['object', 'null'], 'default' => []])));
+    smcp_assert_same('{"type":"object","const":{}}', json_encode(Simple_MCP_Tools::portable(['type' => 'object', 'const' => []])));
+    // an array keeps its empty default
+    smcp_assert_same('{"type":"array","items":{"type":"string"},"default":[]}', json_encode(Simple_MCP_Tools::portable(['type' => 'array', 'items' => ['type' => 'string'], 'default' => []])));
+    smcp_assert_same('{"anyOf":[{"type":"array"},{"type":"object"}],"default":[]}', json_encode(Simple_MCP_Tools::portable(['type' => ['array', 'object'], 'default' => []])), 'array-or-object keeps []');
+    // values are data: keyword-looking keys inside them are not stripped
+    $p = Simple_MCP_Tools::portable(['type' => 'object', 'default' => ['additionalProperties' => true, 'required' => []]]);
+    smcp_assert_same(['additionalProperties' => true, 'required' => []], $p['default']);
+    $p = Simple_MCP_Tools::portable(['type' => 'string', 'enum' => ['a', 'b'], 'examples' => ['a']]);
+    smcp_assert_same(['type' => 'string', 'enum' => ['a', 'b'], 'examples' => ['a']], $p);
+    // a property named "default" is a property, not the keyword
+    $p = Simple_MCP_Tools::portable(['type' => 'object', 'properties' => ['default' => ['type' => 'object', 'additionalProperties' => false, 'default' => []]]]);
+    smcp_assert_same('{"type":"object","properties":{"default":{"type":"object","default":{}}}}', json_encode($p));
+});
+
 smcp_test('oauth: tokens and secrets never reach the audit log', function () {
     $s = Simple_MCP_Audit::redact_text('access smcp_oat_AbCdEfGh123_-xyz refresh smcp_ort_ZZZZZZZZZZ secret smcp_ocs_QQQQQQQQQQQ');
     smcp_assert_same('access smcp_oat_[redacted] refresh smcp_ort_[redacted] secret smcp_ocs_[redacted]', $s);

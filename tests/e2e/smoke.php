@@ -120,6 +120,11 @@ check($s === 200 && ($b['result'] ?? null) === [], 'ping → empty result', $raw
 [$s, , $b, $raw] = rpc($ping, ['MCP-Protocol-Version: 1999-01-01']);
 check($s === 400, 'an unsupported MCP-Protocol-Version → 400', $s . ' ' . $raw);
 
+// A 2026-07-28 client opens without initialize; only a 400 WITHOUT a modern error (-32022) sends it back to initialize
+[$s, , $b, $raw] = rpc(['jsonrpc' => '2.0', 'id' => 6, 'method' => 'tools/list'], ['MCP-Protocol-Version: 2026-07-28']);
+check($s === 400 && ($b['error']['code'] ?? 0) === -32600 && strpos((string) ($b['error']['message'] ?? ''), '2025-11-25') !== false,
+    'MCP 2026-07-28 → 400 with a legacy error naming the supported versions (not -32022), so the client falls back to initialize', $s . ' ' . $raw);
+
 [$s, , $b, $raw] = rpc([$ping, ['jsonrpc' => '2.0', 'id' => 4, 'method' => 'ping']], ['MCP-Protocol-Version: 2025-03-26']);
 check($s === 200 && is_array($b) && count($b) === 2, 'a batch under 2025-03-26 → two responses', $raw);
 
