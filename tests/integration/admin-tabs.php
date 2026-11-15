@@ -7,8 +7,10 @@
  * The settings page in tabs (2.7.4): every tab renders only its own part and form; the form of a tab saves
  * only its own fields (an unchecked box is absent from POST, so saving one tab must not switch off another
  * tab's settings); a POST without a tab — the single-page form from before 2.7.4, still open in a browser
- * during the update — saves everything as before; old log links land on «Журнал». Writes the plugin option
- * and restores it at the end. Exit code 1 on any failure.
+ * during the update — saves everything as before; old log links land on «Журнал». «Автоматичне прибирання»
+ * (2.7.6) saves its switch and interval and reschedules the WP-Cron event, but only when the form had those
+ * fields (a page from 2.7.5 or older must not switch it off). Writes the plugin option and the cron schedule
+ * and restores both at the end. Exit code 1 on any failure.
  */
 if (!defined('ABSPATH')) exit;
 require_once ABSPATH . 'wp-admin/includes/template.php';
@@ -65,6 +67,7 @@ function smcp_tabs_save(array $post) {
 }
 
 $smcp_orig = get_option(Simple_MCP::OPTION, null);
+$smcp_cron = _get_cron_array();
 try {
     // ── Rendering ────────────────────────────────────────────────────────────
     $smcp_fields = ['roles' => 'name="roles[', 'oauth' => 'name="oauth_enabled"', 'settings' => 'name="rate_limit"', 'log' => 'simple_mcp_clear_log'];
@@ -98,6 +101,7 @@ try {
     foreach (array_keys(wp_roles()->roles) as $smcp_slug) $smcp_roles[$smcp_slug] = Simple_MCP::role_defaults($smcp_slug);
     $smcp_base = array_merge(is_array($smcp_orig) ? $smcp_orig : [], [
         'enabled' => true, 'rate_limit' => 120, 'oauth_enabled' => true, 'oauth_wp_cli' => true, 'oauth_any_redirect' => false, 'roles' => $smcp_roles,
+        'housekeeping' => true, 'housekeeping_every' => 'daily',
     ]);
     update_option(Simple_MCP::OPTION, $smcp_base);
     $smcp_settings_post = ['enabled' => '1', 'path' => (string) $smcp_o['path'], 'deny_list' => implode("\n", (array) $smcp_o['deny_list']),
@@ -111,6 +115,24 @@ try {
     smcp_tabs_check(!empty($smcp_now['oauth_enabled']) && !empty($smcp_now['oauth_wp_cli']), '… and leaves the OAuth switches on', $smcp_now);
     smcp_tabs_check($smcp_now['roles'] === $smcp_roles, '… and the role matrix as it was');
     smcp_tabs_check(strpos($smcp_loc, 'tab=settings') !== false && strpos($smcp_loc, 'saved=1') !== false, '… and returns to «Налаштування»', $smcp_loc);
+    smcp_tabs_check($smcp_now['housekeeping'] === true && $smcp_now['housekeeping_every'] === 'daily',
+        '… a form without the housekeeping fields (2.7.5 or older) leaves the housekeeping on', $smcp_now);
+
+    // «Автоматичне прибирання»: off (the unchecked box is absent) with an interval, then on with another one
+    $smcp_event = function () { $e = wp_get_scheduled_event('simple_mcp_prune'); return $e ? (string) $e->schedule : 'none'; };
+    smcp_tabs_save(['tab' => 'settings', 'rate_limit' => '77', 'housekeeping_every' => 'weekly'] + $smcp_settings_post);
+    $smcp_now = Simple_MCP::options();
+    smcp_tabs_check($smcp_now['housekeeping'] === false && $smcp_now['housekeeping_every'] === 'weekly', 'unchecked «Автоматичне прибирання» is saved as off, with its interval', $smcp_now);
+    smcp_tabs_check($smcp_event() === 'none', '… and the WP-Cron event simple_mcp_prune is gone', $smcp_event());
+    smcp_tabs_save(['tab' => 'settings', 'rate_limit' => '77', 'housekeeping' => '1', 'housekeeping_every' => 'hourly'] + $smcp_settings_post);
+    $smcp_now = Simple_MCP::options();
+    smcp_tabs_check($smcp_now['housekeeping'] === true && $smcp_now['housekeeping_every'] === 'hourly', 'checked «Автоматичне прибирання» every hour is saved', $smcp_now);
+    smcp_tabs_check($smcp_event() === 'hourly', '… and the WP-Cron event runs hourly', $smcp_event());
+    smcp_tabs_save(['tab' => 'settings', 'rate_limit' => '77', 'housekeeping' => '1', 'housekeeping_every' => 'every_second'] + $smcp_settings_post);
+    smcp_tabs_check(Simple_MCP::options()['housekeeping_every'] === 'daily' && $smcp_event() === 'daily', 'an unknown interval is saved as «щодня»', Simple_MCP::options());
+    $smcp_html = smcp_tabs_render(['page' => 'simple-mcp', 'tab' => 'settings']);
+    smcp_tabs_check(preg_match('~name="housekeeping" value="1"\s+checked=\'checked\'~', $smcp_html) && strpos($smcp_html, '<option value="daily"  selected=\'selected\'>щодня</option>') !== false,
+        '«Налаштування» shows the switch on and «щодня» selected');
 
     // «OAuth» — only its switches (an unchecked one is off), nothing else
     $smcp_loc = smcp_tabs_save(['tab' => 'oauth', 'oauth_enabled' => '1']);
@@ -136,10 +158,12 @@ try {
 } finally {
     if ($smcp_orig === null) delete_option(Simple_MCP::OPTION);
     else update_option(Simple_MCP::OPTION, $smcp_orig);
+    _set_cron_array($smcp_cron);
     restore_error_handler();
     $_GET = [];
 }
 smcp_tabs_check(get_option(Simple_MCP::OPTION, null) === $smcp_orig, 'the plugin option is restored');
+smcp_tabs_check(_get_cron_array() == $smcp_cron, 'the cron schedule is restored');
 smcp_tabs_check(!$smcp_tabs_notices, 'no PHP notices from the plugin', $smcp_tabs_notices);
 
 echo "\nadmin tabs: " . ($GLOBALS['smcp_tabs_checks'] - $GLOBALS['smcp_tabs_fail']) . ' of ' . $GLOBALS['smcp_tabs_checks'] . " checks passed\n";

@@ -29,6 +29,9 @@ class Simple_MCP_Admin {
     /** Старі якорі єдиної сторінки (закладки, документація) → вкладка */
     const ANCHOR_TABS = ['simple-mcp-log' => 'log', 'simple-mcp-oauth' => 'oauth', 'simple-mcp-abilities' => 'tools'];
 
+    /** «Автоматичне прибирання → як часто»: ключі — Simple_MCP::HOUSEKEEPING_EVERY */
+    const HOUSEKEEPING_LABELS = ['hourly' => 'щогодини', 'twicedaily' => 'двічі на добу', 'daily' => 'щодня', 'weekly' => 'щотижня'];
+
     /** Поточна вкладка: ?tab=…; без неї параметри журналу ведуть на «Журнал», інакше — перша */
     static function current_tab() {
         $tab = sanitize_key(wp_unslash((string) ($_GET['tab'] ?? '')));
@@ -112,6 +115,13 @@ class Simple_MCP_Admin {
             };
             $o['rate_limit']   = max(0, $num('rate_limit', 120));
             $o['log_retention_days'] = max(0, min(3650, $num('log_retention_days', Simple_MCP_Audit::RETENTION_DEFAULT)));
+            // Автоматичне прибирання — лише коли форма мала ці поля (список постить завжди): у відкритої до оновлення
+            // сторінки 2.7.5 і старіших їх немає, а відсутній чекбокс інакше вимкнув би прибирання
+            if (isset($in['housekeeping_every'])) {
+                $every = sanitize_key((string) $in['housekeeping_every']);
+                $o['housekeeping']       = !empty($in['housekeeping']);
+                $o['housekeeping_every'] = isset(Simple_MCP::HOUSEKEEPING_EVERY[$every]) ? $every : 'daily';
+            }
             $o['deny_list']    = self::lines_to_array((string) ($in['deny_list'] ?? ''));
             $o['ip_allowlist'] = self::lines_to_array((string) ($in['ip_allowlist'] ?? ''));
 
@@ -146,6 +156,7 @@ class Simple_MCP_Admin {
         }
 
         update_option(Simple_MCP::OPTION, $o);
+        Simple_MCP::sync_prune_event(); // подія WP-Cron — за щойно збереженим «Автоматичним прибиранням»
         $url = self::tab_url($all ? 'connection' : $tab, ['saved' => 1]);
         if ($rejected) $url = add_query_arg('rejected', implode(',', $rejected), $url);
         wp_safe_redirect($url);
@@ -360,7 +371,7 @@ class Simple_MCP_Admin {
         $tab      = self::current_tab();
         $rejected = array_intersect(explode(',', sanitize_text_field(wp_unslash((string) ($_GET['rejected'] ?? '')))), ['wp_bin', 'php_bin']);
 
-        // Щоденне прибирання і без WP-Cron (DISABLE_WP_CRON): спільна позначка з cron і запитами агентів
+        // Автоматичне прибирання і без WP-Cron (DISABLE_WP_CRON): спільна позначка з cron і запитами агентів
         Simple_MCP::housekeeping();
         ?>
         <div class="wrap">
@@ -587,8 +598,19 @@ class Simple_MCP_Admin {
                 <tr>
                     <th scope="row">Зберігати журнал</th>
                     <td><input type="number" name="log_retention_days" value="<?php echo esc_attr((string) Simple_MCP_Audit::retention_days()); ?>" min="0" max="3650" class="small-text"> днів <span class="description">(0 = не видаляти)</span>
+                        <p class="description">Старіші записи видаляє автоматичне прибирання (нижче), поки воно ввімкнене.</p></td>
+                </tr>
+                <tr>
+                    <th scope="row">Автоматичне прибирання</th>
+                    <td><label><input type="checkbox" name="housekeeping" value="1" <?php checked(Simple_MCP::housekeeping_enabled()); ?>> увімкнено</label>,
+                        <select name="housekeeping_every" aria-label="Як часто прибирати">
+                            <?php foreach (self::HOUSEKEEPING_LABELS as $every => $label): ?>
+                                <option value="<?php echo esc_attr($every); ?>" <?php selected(Simple_MCP::housekeeping_every(), $every); ?>><?php echo esc_html($label); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <p class="description">Видаляє записи журналу, старіші за «Зберігати журнал», прострочені коди й токени OAuth, підключення відкликаних ключів, клієнтів OAuth без підключень, старших за 30 днів, і покинуті частинкові завантаження. Запускається подією WP-Cron <code>simple_mcp_prune</code>, а якщо WP-Cron вимкнено (<code>DISABLE_WP_CRON</code>), — самим плагіном після запитів агентів і при відкритті цієї сторінки, не частіше за обраний інтервал. Вимкнене — нічого з цього не чиститься само; журнал можна очистити вручну на вкладці «Журнал».</p>
                         <?php $pruned = Simple_MCP::last_housekeeping(); ?>
-                        <p class="description">Старіші записи видаляє щоденне прибирання (разом із простроченими кодами й токенами OAuth): подія WP-Cron <code>simple_mcp_prune</code>, а якщо WP-Cron вимкнено (<code>DISABLE_WP_CRON</code>) — сам плагін після запитів агентів і при відкритті цієї сторінки, не частіше разу на добу. Востаннє: <?php echo $pruned ? esc_html(wp_date('d.m.Y H:i', $pruned)) : 'ще не було'; ?>.</p></td>
+                        <p class="description">Востаннє: <?php echo $pruned ? esc_html(wp_date('d.m.Y H:i', $pruned)) : 'ще не було'; ?>.</p></td>
                 </tr>
                 <?php
                 $cli_info = method_exists('Simple_MCP', 'cli_info') ? Simple_MCP::cli_info() : [];

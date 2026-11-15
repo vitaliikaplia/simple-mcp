@@ -10,13 +10,13 @@ class Simple_MCP {
     const VERSION_OPTION   = 'simple_mcp_version';      // для міграцій між версіями
     const USER_KEY_META    = 'simple_mcp_key_hash';     // SHA-256 персонального ключа (user meta)
     const USER_KEY_CREATED = 'simple_mcp_key_created';  // timestamp генерації ключа (user meta)
-    const PRUNED_OPTION    = 'simple_mcp_pruned_at';    // unix-час останнього щоденного прибирання (повз кеш опцій)
+    const PRUNED_OPTION    = 'simple_mcp_pruned_at';    // unix-час останнього автоматичного прибирання (повз кеш опцій)
 
     /**
-     * Прибирання не частіше, ніж раз на 23 години: трохи менше доби, щоб щоденна подія WP-Cron, яка
-     * спрацьовує із запізненням на секунди-хвилини, не пропускала через це кожен другий день.
+     * Як часто прибирати (налаштування housekeeping_every): ключ — повторення WP-Cron (усі вбудовані з WP 5.4),
+     * значення — інтервал у секундах.
      */
-    const PRUNE_EVERY = 82800;
+    const HOUSEKEEPING_EVERY = ['hourly' => 3600, 'twicedaily' => 43200, 'daily' => 86400, 'weekly' => 604800];
 
     /**
      * Версія, з якої інструменти інших плагінів і теми (група abilities) з'явились для вже наявних сайтів.
@@ -39,6 +39,9 @@ class Simple_MCP {
             'ip_allowlist'   => [],   // порожньо = дозволені всі IP
             'rate_limit'     => 120,  // запитів за хвилину на користувача
             'log_retention_days' => 30, // скільки днів зберігати audit-лог (0 = не чистити)
+            // Автоматичне прибирання (Simple_MCP::housekeeping): журнал за ретенцією, коди й токени OAuth, завантаження
+            'housekeeping'       => true,
+            'housekeeping_every' => 'daily', // ключ HOUSEKEEPING_EVERY
             'wp_bin'         => '',   // шлях до бінарника wp ('' = автовизначення)
             'php_bin'        => '',   // шлях до CLI-php ('' = автовизначення)
             // OAuth (Simple_MCP_OAuth): підключення агентів без ключа — вмикає адміністратор
@@ -175,16 +178,14 @@ class Simple_MCP {
         // Власний ендпоінт ловимо на найранішому етапі парсингу запиту —
         // ДО того, як спрацює REST API та його гейт «REST off для анонімів».
         add_filter('do_parse_request', ['Simple_MCP_Endpoint', 'maybe_handle'], 0, 2);
-        // Щоденне прибирання (housekeeping): подія WP-Cron — лише один зі шляхів, бо на багатьох сайтах
+        // Автоматичне прибирання (housekeeping): подія WP-Cron — лише один зі шляхів, бо на багатьох сайтах
         // WP-Cron вимкнено (DISABLE_WP_CRON без системного cron). Інші — запит агента після відповіді
         // (Simple_MCP_Endpoint::after_response) і екран налаштувань. accepted_args = 0: do_action() без
         // аргументів передає '' першим аргументом.
         add_action('simple_mcp_prune', [__CLASS__, 'housekeeping'], 10, 0);
         add_action('deleted_user', ['Simple_MCP_OAuth', 'forget_user'], 10, 1);          // OAuth-підключення видаленого користувача
-        // Подія могла зникнути (чищення cron, міграція, оновлення без реактивації) — відновлюємо.
-        if (!wp_installing() && !wp_next_scheduled('simple_mcp_prune')) {
-            wp_schedule_event(time() + HOUR_IN_SECONDS, 'daily', 'simple_mcp_prune');
-        }
+        // Подія відповідає налаштуванням (могла й зникнути: чищення cron, міграція, оновлення без реактивації)
+        self::sync_prune_event();
         new Simple_MCP_GitHub_Updater(); // авто-оновлення через GitHub (працює і в cron, не лише в адмінці)
         if (is_admin()) {
             Simple_MCP_Admin::init();
@@ -265,12 +266,48 @@ class Simple_MCP {
         }
     }
 
-    // ── Щоденне прибирання ────────────────────────────────────────────────
+    // ── Автоматичне прибирання ────────────────────────────────────────────
+
+    /** Чи ввімкнено автоматичне прибирання (налаштування housekeeping; типово так) */
+    static function housekeeping_enabled() {
+        return (bool) self::opt('housekeeping', true);
+    }
+
+    /** Як часто прибирати: ключ HOUSEKEEPING_EVERY (невідоме значення — daily) */
+    static function housekeeping_every() {
+        $e = (string) self::opt('housekeeping_every', 'daily');
+        return isset(self::HOUSEKEEPING_EVERY[$e]) ? $e : 'daily';
+    }
 
     /**
-     * Щоденне прибирання, якщо воно на часі й цей запит забрав його собі (claim_housekeeping): з події
-     * WP-Cron simple_mcp_prune, після відповіді агенту й з екрана налаштувань. Усі шляхи ділять одну
-     * позначку часу, тож прибирання йде не частіше, ніж раз на PRUNE_EVERY. Повертає, чи виконувалось.
+     * Мінімальна пауза між прибираннями, с: обраний інтервал мінус 1/24 (доба → 23 год, година → 57,5 хв),
+     * щоб подія WP-Cron того ж повторення, яка спрацьовує із запізненням на секунди-хвилини, не пропускала
+     * через це кожен другий раз.
+     */
+    static function prune_every() {
+        $s = self::HOUSEKEEPING_EVERY[self::housekeeping_every()];
+        return $s - intdiv($s, 24);
+    }
+
+    /**
+     * Подія WP-Cron simple_mcp_prune відповідає налаштуванням: є з обраним повторенням, коли прибирання
+     * увімкнено, і немає, коли вимкнено. На кожному init (розклад — автозавантажена опція, як і для
+     * wp_next_scheduled), після збереження налаштувань і при активації.
+     */
+    static function sync_prune_event() {
+        if (wp_installing()) return;
+        $want = self::housekeeping_enabled() ? self::housekeeping_every() : '';
+        $ev   = wp_get_scheduled_event('simple_mcp_prune');
+        $have = $ev ? (string) $ev->schedule : '';
+        if ($ev ? $have === $want : $want === '') return;
+        if ($ev) wp_clear_scheduled_hook('simple_mcp_prune');
+        if ($want !== '') wp_schedule_event(time() + HOUR_IN_SECONDS, $want, 'simple_mcp_prune');
+    }
+
+    /**
+     * Автоматичне прибирання, якщо воно ввімкнене, на часі й цей запит забрав його собі (claim_housekeeping):
+     * з події WP-Cron simple_mcp_prune, після відповіді агенту й з екрана налаштувань. Усі шляхи ділять одну
+     * позначку часу, тож прибирання йде не частіше за обраний інтервал. Повертає, чи виконувалось.
      */
     static function housekeeping() {
         if (!self::claim_housekeeping()) return false;
@@ -286,13 +323,14 @@ class Simple_MCP {
     }
 
     /**
-     * Атомарно забрати прибирання собі, якщо остання позначка старша за PRUNE_EVERY (або з майбутнього —
-     * зсув годинника не має блокувати прибирання назавжди). UPDATE … WHERE option_value = <прочитане>
-     * пройде лише в одного з паралельних запитів; першого разу, поки позначки немає, — INSERT IGNORE.
+     * Атомарно забрати прибирання собі, якщо воно ввімкнене й остання позначка старша за prune_every() (або
+     * з майбутнього — зсув годинника не має блокувати прибирання назавжди). UPDATE … WHERE option_value =
+     * <прочитане> пройде лише в одного з паралельних запитів; першого разу, поки позначки немає, — INSERT IGNORE.
      * Опцію читаємо й пишемо напряму, повз get_option: застарілий object cache не має значення.
      */
     static function claim_housekeeping() {
         global $wpdb;
+        if (!self::housekeeping_enabled()) return false;
         $now  = time();
         $last = self::last_housekeeping(true);
         if ($last === null) {
@@ -303,7 +341,7 @@ class Simple_MCP {
             ));
             return (int) $n === 1;
         }
-        if ((int) $last > $now - self::PRUNE_EVERY && (int) $last <= $now) return false;
+        if ((int) $last > $now - self::prune_every() && (int) $last <= $now) return false;
         $n = $wpdb->query($wpdb->prepare(
             "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
             (string) $now, self::PRUNED_OPTION, $last
@@ -324,9 +362,7 @@ class Simple_MCP {
 
     static function activate() {
         if (get_option(self::OPTION) === false) add_option(self::OPTION, self::defaults());
-        if (!wp_next_scheduled('simple_mcp_prune')) {
-            wp_schedule_event(time() + HOUR_IN_SECONDS, 'daily', 'simple_mcp_prune');
-        }
+        self::sync_prune_event();
         // Активація може бути й шляхом апгрейду (deactivate → заміна файлів → reactivate):
         // проганяємо міграцію (вона ж створює таблицю й штампує версію), а не штампуємо напряму,
         // інакше легасі-міграція назавжди пропуститься.

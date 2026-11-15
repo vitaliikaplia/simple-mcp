@@ -4,14 +4,16 @@
  *
  *   wp eval-file wp-content/plugins/simple-mcp/tests/integration/housekeeping.php
  *
- * Daily housekeeping without WP-Cron (2.7.5). Many sites run with DISABLE_WP_CRON and no system cron, so the
- * event simple_mcp_prune never fires there; the plugin also cleans up after an agent's request and on its
- * settings page. Every path goes through one claim on the option simple_mcp_pruned_at: the first run inserts
- * it, later runs need a stamp older than Simple_MCP::PRUNE_EVERY (a stamp from the future does not block it).
- * A run removes audit rows past the retention and expired OAuth codes and tokens, and keeps live ones.
+ * Housekeeping without WP-Cron (2.7.5) and its settings (2.7.6). Many sites run with DISABLE_WP_CRON and no
+ * system cron, so the event simple_mcp_prune never fires there; the plugin also cleans up after an agent's
+ * request and on its settings page. Every path goes through one claim on the option simple_mcp_pruned_at: the
+ * first run inserts it, later runs need a stamp older than Simple_MCP::prune_every() — the chosen interval
+ * (hourly, twicedaily, daily, weekly) less 1/24 (a stamp from the future does not block it). Switched off,
+ * nothing cleans up and the cron event is gone. A run removes audit rows past the retention and expired OAuth
+ * codes and tokens, and keeps live ones.
  *
  * Everything happens inside a transaction that is rolled back: the site keeps its log, its stamp and its
- * OAuth rows. Skips when a table is not InnoDB (the rollback would not undo the deletes). Exit code 1 on any failure.
+ * OAuth rows; the cron schedule is put back as it was. Skips when a table is not InnoDB (the rollback would not undo the deletes). Exit code 1 on any failure.
  */
 if (!defined('ABSPATH')) exit;
 require_once ABSPATH . 'wp-admin/includes/template.php';
@@ -85,10 +87,13 @@ function smcp_hk_left(array $m) {
     return $left;
 }
 
-// A fixed retention of 30 days, whatever the site has set
-$smcp_hk_retention = function ($o) { $o = is_array($o) ? $o : []; $o['log_retention_days'] = 30; return $o; };
+// A fixed retention of 30 days and the housekeeping settings of each step, whatever the site has set
+$GLOBALS['smcp_hk_opts'] = ['log_retention_days' => 30, 'housekeeping' => true, 'housekeeping_every' => 'daily'];
+$smcp_hk_retention = function ($o) { return array_merge(is_array($o) ? $o : [], $GLOBALS['smcp_hk_opts']); };
 add_filter('option_' . Simple_MCP::OPTION, $smcp_hk_retention);
+add_filter('default_option_' . Simple_MCP::OPTION, $smcp_hk_retention);
 $smcp_hk_orig = Simple_MCP::last_housekeeping(true);
+$smcp_hk_cron = _get_cron_array();
 
 $wpdb->query('START TRANSACTION');
 try {
@@ -106,20 +111,63 @@ try {
     smcp_hk_check(smcp_hk_left($smcp_hk_m) === $smcp_hk_kept, 'expired OAuth codes and tokens and audit rows past 30 days are gone, the rest kept', smcp_hk_left($smcp_hk_m));
     smcp_hk_check((string) $wpdb->get_var($wpdb->prepare("SELECT autoload FROM {$wpdb->options} WHERE option_name = %s", Simple_MCP::PRUNED_OPTION)) === 'no', 'the stamp is not autoloaded');
 
-    // ── At most once per PRUNE_EVERY ────────────────────────────────────────
+    // ── At most once per interval (daily by default: 23 h) ──────────────────
     $smcp_hk_m = smcp_hk_seed();
     smcp_hk_check(Simple_MCP::housekeeping() === false, 'a second run right after does nothing');
     smcp_hk_check(smcp_hk_left($smcp_hk_m) === $smcp_hk_all, '… and deletes nothing', smcp_hk_left($smcp_hk_m));
-    smcp_hk_stamp($smcp_hk_now - Simple_MCP::PRUNE_EVERY + 600);
-    smcp_hk_check(Simple_MCP::housekeeping() === false, 'a stamp younger than PRUNE_EVERY (23 h) blocks the run');
-    smcp_hk_stamp($smcp_hk_now - Simple_MCP::PRUNE_EVERY - 5);
-    smcp_hk_check(Simple_MCP::housekeeping() === true, 'a stamp older than PRUNE_EVERY lets it run');
+    smcp_hk_check(Simple_MCP::prune_every() === 82800, 'daily by default: at most once per 23 h', Simple_MCP::prune_every());
+    smcp_hk_stamp($smcp_hk_now - Simple_MCP::prune_every() + 600);
+    smcp_hk_check(Simple_MCP::housekeeping() === false, 'a stamp younger than 23 h blocks the run');
+    smcp_hk_stamp($smcp_hk_now - Simple_MCP::prune_every() - 5);
+    smcp_hk_check(Simple_MCP::housekeeping() === true, 'a stamp older than 23 h lets it run');
     smcp_hk_check(smcp_hk_left($smcp_hk_m) === $smcp_hk_kept, '… and it cleans up', smcp_hk_left($smcp_hk_m));
     smcp_hk_stamp($smcp_hk_now + DAY_IN_SECONDS);
     smcp_hk_check(Simple_MCP::claim_housekeeping() === true, 'a stamp from the future (clock skew) does not block it forever');
     smcp_hk_check(Simple_MCP::claim_housekeeping() === false, 'only one claim per run: the next one finds a fresh stamp');
     smcp_hk_stamp('garbage');
     smcp_hk_check(Simple_MCP::claim_housekeeping() === true, 'a broken stamp counts as long ago');
+
+    // ── Settings: the interval and the switch ───────────────────────────────
+    $smcp_hk_want = ['hourly' => 3450, 'twicedaily' => 41400, 'daily' => 82800, 'weekly' => 579600, 'every_second' => 82800];
+    $smcp_hk_got  = [];
+    foreach (array_keys($smcp_hk_want) as $smcp_hk_e) {
+        $GLOBALS['smcp_hk_opts']['housekeeping_every'] = $smcp_hk_e;
+        $smcp_hk_got[$smcp_hk_e] = Simple_MCP::prune_every();
+    }
+    smcp_hk_check($smcp_hk_got === $smcp_hk_want, 'each interval less 1/24; an unknown one counts as daily', $smcp_hk_got);
+    $GLOBALS['smcp_hk_opts']['housekeeping_every'] = 'hourly';
+    smcp_hk_stamp($smcp_hk_now - 1800);
+    smcp_hk_check(Simple_MCP::claim_housekeeping() === false, 'hourly: a run 30 min ago blocks it');
+    smcp_hk_stamp($smcp_hk_now - 2 * HOUR_IN_SECONDS);
+    smcp_hk_check(Simple_MCP::claim_housekeeping() === true, 'hourly: a run 2 h ago lets it go');
+    $GLOBALS['smcp_hk_opts']['housekeeping_every'] = 'weekly';
+    smcp_hk_stamp($smcp_hk_now - 2 * DAY_IN_SECONDS);
+    smcp_hk_check(Simple_MCP::claim_housekeeping() === false, 'weekly: a run 2 days ago blocks it');
+    smcp_hk_stamp($smcp_hk_now - 8 * DAY_IN_SECONDS);
+    smcp_hk_check(Simple_MCP::claim_housekeeping() === true, 'weekly: a run 8 days ago lets it go');
+    $GLOBALS['smcp_hk_opts']['housekeeping_every'] = 'daily';
+
+    $GLOBALS['smcp_hk_opts']['housekeeping'] = false;
+    smcp_hk_stamp($smcp_hk_now - 30 * DAY_IN_SECONDS);
+    $smcp_hk_m = smcp_hk_seed();
+    smcp_hk_check(Simple_MCP::housekeeping() === false && Simple_MCP::claim_housekeeping() === false, 'switched off: no run and no claim, however long ago the last one was');
+    do_action('simple_mcp_prune');
+    smcp_hk_check(smcp_hk_left($smcp_hk_m) === $smcp_hk_all && Simple_MCP::last_housekeeping() === $smcp_hk_now - 30 * DAY_IN_SECONDS,
+        '… the cron event deletes nothing and leaves the stamp', smcp_hk_left($smcp_hk_m));
+
+    // The cron event follows the settings
+    $smcp_hk_event = function () { $e = wp_get_scheduled_event('simple_mcp_prune'); return $e ? (string) $e->schedule : 'none'; };
+    Simple_MCP::sync_prune_event();
+    smcp_hk_check($smcp_hk_event() === 'none', 'switched off: the cron event is unscheduled', $smcp_hk_event());
+    $GLOBALS['smcp_hk_opts']['housekeeping'] = true;
+    Simple_MCP::sync_prune_event();
+    smcp_hk_check($smcp_hk_event() === 'daily', 'switched on again: the daily event is back', $smcp_hk_event());
+    $GLOBALS['smcp_hk_opts']['housekeeping_every'] = 'twicedaily';
+    Simple_MCP::sync_prune_event();
+    smcp_hk_check($smcp_hk_event() === 'twicedaily' && count(array_filter(_get_cron_array(), function ($e) { return isset($e['simple_mcp_prune']); })) === 1,
+        'another interval: one event, rescheduled to it', $smcp_hk_event());
+    $GLOBALS['smcp_hk_opts']['housekeeping_every'] = 'daily';
+    Simple_MCP::sync_prune_event();
 
     // ── The WP-Cron event goes through the same claim ───────────────────────
     smcp_hk_check(has_action('simple_mcp_prune', ['Simple_MCP', 'housekeeping']) === 10, 'simple_mcp_prune runs Simple_MCP::housekeeping');
@@ -149,14 +197,29 @@ try {
         ob_end_clean();
         $_GET = [];
         smcp_hk_check(Simple_MCP::last_housekeeping() > 0, 'the settings page also makes the very first run');
+        $GLOBALS['smcp_hk_opts']['housekeeping'] = false;
+        smcp_hk_stamp($smcp_hk_now - 3 * DAY_IN_SECONDS);
+        $smcp_hk_m = smcp_hk_seed();
+        $_GET = ['page' => 'simple-mcp', 'tab' => 'settings'];
+        ob_start();
+        Simple_MCP_Admin::render();
+        ob_end_clean();
+        $_GET = [];
+        smcp_hk_check(smcp_hk_left($smcp_hk_m) === $smcp_hk_all, 'switched off: opening the settings page deletes nothing', smcp_hk_left($smcp_hk_m));
+        $GLOBALS['smcp_hk_opts']['housekeeping'] = true;
     } else {
         echo "skip the settings page: no administrator\n";
     }
 } finally {
     $wpdb->query('ROLLBACK');
     remove_filter('option_' . Simple_MCP::OPTION, $smcp_hk_retention);
+    remove_filter('default_option_' . Simple_MCP::OPTION, $smcp_hk_retention);
+    wp_cache_delete('alloptions', 'options'); // the rollback reverted the rows, not the options cache
+    wp_cache_delete('cron', 'options');
+    if (_get_cron_array() != $smcp_hk_cron) _set_cron_array($smcp_hk_cron);
 }
 smcp_hk_check(Simple_MCP::last_housekeeping(true) === $smcp_hk_orig, 'the rollback put the site\'s stamp back', [Simple_MCP::last_housekeeping(true), $smcp_hk_orig]);
+smcp_hk_check(_get_cron_array() == $smcp_hk_cron, 'the cron schedule is as it was');
 
 echo "\n" . ($GLOBALS['smcp_hk_checks'] - $GLOBALS['smcp_hk_fail']) . ' of ' . $GLOBALS['smcp_hk_checks'] . " housekeeping checks passed\n";
 if ($GLOBALS['smcp_hk_fail']) exit(1);

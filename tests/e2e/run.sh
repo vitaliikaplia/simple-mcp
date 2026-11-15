@@ -6,7 +6,8 @@
 # (in the web requests or in the wp_cli subprocesses) fails the run. After the key smoke test, tests/e2e/oauth.php walks
 # the OAuth way in (switched on for it, then off again), and tests/e2e/abilities.php calls other plugins' tools
 # (WordPress Abilities from tests/e2e/fixtures, installed as a mu-plugin for the run only), an agent's request runs the overdue daily
-# housekeeping without WP-Cron, tests/integration/housekeeping.php checks its claim and paths, and tests/integration/admin-tabs.php
+# housekeeping without WP-Cron (and not when it is switched off), tests/integration/housekeeping.php checks its claim, settings
+# and paths, and tests/integration/admin-tabs.php
 # checks the tabs of the settings page.
 #
 #   tests/e2e/run.sh <wordpress-dir> [port]
@@ -116,8 +117,16 @@ CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: applicat
     -H "Authorization: Bearer $KEY" --data "$PING" "http://127.0.0.1:$PORT/simple-mcp")
 [ "$CODE" = 200 ] && [ "$(hk_state)" = "HK=fresh1,dead0" ] || { echo "FAIL an agent's request ($CODE) did not clean up: $(hk_state)"; exit 1; }
 echo "ok   an agent's request runs the overdue daily housekeeping after its response (no WP-Cron)"
+# «Автоматичне прибирання» switched off in the settings (2.7.6): the same request cleans nothing up
+opt '$o["housekeeping"] = false;'
+hk_seed
+CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+    -H "Authorization: Bearer $KEY" --data "$PING" "http://127.0.0.1:$PORT/simple-mcp")
+[ "$CODE" = 200 ] && [ "$(hk_state)" = "HK=fresh0,dead1" ] || { echo "FAIL with the housekeeping off an agent's request ($CODE) still cleaned up: $(hk_state)"; exit 1; }
+echo "ok   switched off in the settings, an agent's request cleans nothing up"
+opt 'unset($o["housekeeping"]);'
 
-# The daily housekeeping, its claim and its paths (rolled back), and the settings page in tabs (writes the option, restores it)
+# The housekeeping, its claim, settings and paths (rolled back), and the settings page in tabs (writes the option, restores it)
 $WPCLI --path="$WP_DIR" eval-file "$PLUGIN/tests/integration/housekeeping.php" | grep -v '^Deprecated'
 $WPCLI --path="$WP_DIR" eval-file "$PLUGIN/tests/integration/admin-tabs.php" | grep -v '^Deprecated'
 
