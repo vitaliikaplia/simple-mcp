@@ -5,7 +5,8 @@
 # administrator with user ID 1. Any warning, notice, deprecation or fatal error raised in the plugin's own files
 # (in the web requests or in the wp_cli subprocesses) fails the run. After the key smoke test, tests/e2e/oauth.php walks
 # the OAuth way in (switched on for it, then off again), and tests/e2e/abilities.php calls other plugins' tools
-# (WordPress Abilities from tests/e2e/fixtures, installed as a mu-plugin for the run only).
+# (WordPress Abilities from tests/e2e/fixtures, installed as a mu-plugin for the run only), and tests/integration/admin-tabs.php
+# checks the tabs of the settings page.
 #
 #   tests/e2e/run.sh <wordpress-dir> [port]
 #   PHP=php8.1 WP="wp" tests/e2e/run.sh /tmp/wordpress 8089   # PHP serves the site, WP is the WP-CLI command
@@ -87,6 +88,9 @@ $WPCLI --path="$WP_DIR" eval '
     $n = (int) $wpdb->get_var("SELECT COUNT(*) FROM `" . Simple_MCP_Audit::table() . "`");
     echo "AUDIT=", $n, "\n";' | grep -q 'AUDIT=[1-9]' || { echo "the audit log stayed empty"; exit 1; }
 echo "ok   the audit log recorded the calls"
+
+# The settings page in tabs: each tab renders and saves only its own part (writes the option, restores it)
+$WPCLI --path="$WP_DIR" eval-file "$PLUGIN/tests/integration/admin-tabs.php" | grep -v '^Deprecated'
 
 touch "$LOGS/php-errors.log"
 if grep -h -E '/simple-mcp/' "$LOGS/php-errors.log" "$DEBUG_LOG"; then

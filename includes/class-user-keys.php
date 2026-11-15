@@ -136,7 +136,7 @@ class Simple_MCP_User_Keys {
                         <span style="color:#b32d2e;font-weight:600">● заборонено</span>
                         <p class="description">Роль цього користувача не має MCP-доступу.
                             <?php if (current_user_can('manage_options')): ?>
-                                Увімкнути можна в <a href="<?php echo esc_url(admin_url('options-general.php?page=simple-mcp')); ?>">Налаштування → Simple MCP</a> (матриця «Права ролей»).
+                                Увімкнути можна в <a href="<?php echo esc_url(admin_url('options-general.php?page=simple-mcp&tab=roles')); ?>">Налаштування → Simple MCP → Права</a>.
                             <?php else: ?>
                                 Звернись до адміністратора сайту.
                             <?php endif; ?>
@@ -286,6 +286,11 @@ class Simple_MCP_User_Keys {
         delete_transient(self::flash_key(get_current_user_id(), $uid));
         $user = get_user_by('id', $uid);
         if ($removed && $user) self::audit('key_revoke', $user, $removed);
+        // Відкликано з вкладки «OAuth» сторінки налаштувань — туди й повертаємось
+        if (($_GET['back'] ?? '') === 'oauth' && current_user_can('manage_options') && class_exists('Simple_MCP_Admin')) {
+            wp_safe_redirect(Simple_MCP_Admin::tab_url('oauth', $removed ? ['revoked' => 1] : []));
+            exit;
+        }
         self::redirect_back($uid);
     }
 
