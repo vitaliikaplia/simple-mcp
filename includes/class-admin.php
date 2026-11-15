@@ -360,11 +360,8 @@ class Simple_MCP_Admin {
         $tab      = self::current_tab();
         $rejected = array_intersect(explode(',', sanitize_text_field(wp_unslash((string) ($_GET['rejected'] ?? '')))), ['wp_bin', 'php_bin']);
 
-        // Ретенція і без WP-Cron (DISABLE_WP_CRON без системного cron): не частіше разу на добу
-        if (!get_transient('simple_mcp_admin_pruned')) {
-            Simple_MCP_Audit::prune();
-            set_transient('simple_mcp_admin_pruned', 1, DAY_IN_SECONDS);
-        }
+        // Щоденне прибирання і без WP-Cron (DISABLE_WP_CRON): спільна позначка з cron і запитами агентів
+        Simple_MCP::housekeeping();
         ?>
         <div class="wrap">
             <h1>Simple MCP</h1>
@@ -590,7 +587,8 @@ class Simple_MCP_Admin {
                 <tr>
                     <th scope="row">Зберігати журнал</th>
                     <td><input type="number" name="log_retention_days" value="<?php echo esc_attr((string) Simple_MCP_Audit::retention_days()); ?>" min="0" max="3650" class="small-text"> днів <span class="description">(0 = не видаляти)</span>
-                        <p class="description">Чистить щоденний WP-Cron <code>simple_mcp_prune</code> (і цей екран — раз на добу). Якщо задано <code>DISABLE_WP_CRON</code>, потрібен системний cron (<code>wp cron event run --due-now</code>).</p></td>
+                        <?php $pruned = Simple_MCP::last_housekeeping(); ?>
+                        <p class="description">Старіші записи видаляє щоденне прибирання (разом із простроченими кодами й токенами OAuth): подія WP-Cron <code>simple_mcp_prune</code>, а якщо WP-Cron вимкнено (<code>DISABLE_WP_CRON</code>) — сам плагін після запитів агентів і при відкритті цієї сторінки, не частіше разу на добу. Востаннє: <?php echo $pruned ? esc_html(wp_date('d.m.Y H:i', $pruned)) : 'ще не було'; ?>.</p></td>
                 </tr>
                 <?php
                 $cli_info = method_exists('Simple_MCP', 'cli_info') ? Simple_MCP::cli_info() : [];

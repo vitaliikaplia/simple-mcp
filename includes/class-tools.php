@@ -1950,7 +1950,7 @@ class Simple_MCP_Tools {
     /**
      * Прибирання покинутих chunked-завантажень: файли сесій (.part / .json / .finishing), яких
      * не торкались довше UPLOAD_GC_AGE, і їхні transients (сесії до 2.5.0). Викликається з
-     * upload_begin та щоденного крону simple_mcp_prune. Повертає кількість видалених файлів.
+     * upload_begin та щоденного прибирання (Simple_MCP::housekeeping). Повертає кількість видалених файлів.
      */
     static function gc_uploads() {
         $dir = self::tmp_dir(false);

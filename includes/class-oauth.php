@@ -812,7 +812,7 @@ class Simple_MCP_OAuth {
         return $ready;
     }
 
-    /** Щодня (simple_mcp_prune): прострочені коди й токени, підключення відкликаних ключів, клієнти без підключень старші за 30 днів */
+    /** Щодня (Simple_MCP::housekeeping): прострочені коди й токени, підключення відкликаних ключів, клієнти без підключень старші за 30 днів */
     static function purge() {
         global $wpdb;
         if (!self::tables_ready()) return;

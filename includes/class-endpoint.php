@@ -36,6 +36,8 @@ class Simple_MCP_Endpoint {
     private static $current = null;
     /** Уже готові відповіді батча (щоб фатальна помилка посередині не губила їх) */
     private static $batch = null;
+    /** Запит пройшов автентифікацію (після відповіді можна зробити щоденне прибирання) */
+    private static $authed = false;
 
     /** Хук do_parse_request: якщо шлях наш — обробляємо й виходимо, інакше не заважаємо WP */
     static function maybe_handle($do, $wp) {
@@ -99,7 +101,25 @@ class Simple_MCP_Endpoint {
         self::start_guard();
         $raw = file_get_contents('php://input');
         [$status, $headers, $body] = self::process(strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')), is_string($raw) ? $raw : '');
+        if (self::$authed) add_action('shutdown', [__CLASS__, 'after_response'], PHP_INT_MAX);
         self::emit($status, $headers, $body);
+    }
+
+    /**
+     * Після відповіді автентифікованому клієнту (shutdown, останнім): щоденне прибирання, якщо воно на
+     * часі, — так воно йде й там, де WP-Cron вимкнено. Спершу забираємо його собі (один SELECT, коли не
+     * на часі), тоді закриваємо з'єднання (PHP-FPM, LiteSpeed), щоб агент не чекав; без цих функцій
+     * (mod_php) клієнт дочекається кількох DELETE раз на добу.
+     */
+    static function after_response() {
+        if (!Simple_MCP::claim_housekeeping()) return;
+        ignore_user_abort(true);
+        if (function_exists('fastcgi_finish_request')) {
+            fastcgi_finish_request();
+        } elseif (function_exists('litespeed_finish_request')) {
+            litespeed_finish_request();
+        }
+        Simple_MCP::run_housekeeping();
     }
 
     /**
@@ -125,6 +145,7 @@ class Simple_MCP_Endpoint {
     static function process($method, $raw) {
         self::$current = null;
         self::$batch   = null;
+        self::$authed  = false;
 
         if ($method !== 'POST') {
             return [405, ['Allow' => 'POST'], self::error(null, -32000, 'Method not allowed')];
@@ -141,6 +162,7 @@ class Simple_MCP_Endpoint {
             $headers = (is_array($data) && isset($data['headers']) && is_array($data['headers'])) ? $data['headers'] : [];
             return [$status, $headers, self::error(null, -32001, $auth->get_error_message())];
         }
+        self::$authed = true;
 
         $trim    = ltrim((string) $raw);
         $payload = json_decode((string) $raw, true);

@@ -5,7 +5,8 @@
 # administrator with user ID 1. Any warning, notice, deprecation or fatal error raised in the plugin's own files
 # (in the web requests or in the wp_cli subprocesses) fails the run. After the key smoke test, tests/e2e/oauth.php walks
 # the OAuth way in (switched on for it, then off again), and tests/e2e/abilities.php calls other plugins' tools
-# (WordPress Abilities from tests/e2e/fixtures, installed as a mu-plugin for the run only), and tests/integration/admin-tabs.php
+# (WordPress Abilities from tests/e2e/fixtures, installed as a mu-plugin for the run only), an agent's request runs the overdue daily
+# housekeeping without WP-Cron, tests/integration/housekeeping.php checks its claim and paths, and tests/integration/admin-tabs.php
 # checks the tabs of the settings page.
 #
 #   tests/e2e/run.sh <wordpress-dir> [port]
@@ -89,7 +90,35 @@ $WPCLI --path="$WP_DIR" eval '
     echo "AUDIT=", $n, "\n";' | grep -q 'AUDIT=[1-9]' || { echo "the audit log stayed empty"; exit 1; }
 echo "ok   the audit log recorded the calls"
 
-# The settings page in tabs: each tab renders and saves only its own part (writes the option, restores it)
+# ── Daily housekeeping without WP-Cron (2.7.5): an agent's request cleans up after its response when the last
+# run is older than a day; an unauthenticated one does not ──
+hk_seed() {
+    $WPCLI --path="$WP_DIR" eval '
+        global $wpdb;
+        $wpdb->replace($wpdb->options, ["option_name" => Simple_MCP::PRUNED_OPTION, "option_value" => (string) (time() - 2 * DAY_IN_SECONDS), "autoload" => "no"]);
+        $wpdb->replace(Simple_MCP_OAuth::table("codes"), ["code_hash" => hash("sha256", "smcp-e2e-housekeeping"), "expires_at" => time() - 60]);
+        echo "SEEDED\n";' | grep -q SEEDED || { echo "could not seed the housekeeping check"; exit 1; }
+}
+hk_state() {
+    $WPCLI --path="$WP_DIR" eval '
+        global $wpdb;
+        $fresh = Simple_MCP::last_housekeeping() > time() - 60 ? 1 : 0;
+        $dead  = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM " . Simple_MCP_OAuth::table("codes") . " WHERE code_hash = %s", hash("sha256", "smcp-e2e-housekeeping")));
+        echo "HK=fresh$fresh,dead$dead\n";' | grep -o 'HK=[a-z0-9,]*'
+}
+PING='{"jsonrpc":"2.0","id":1,"method":"ping"}'
+hk_seed
+CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+    --data "$PING" "http://127.0.0.1:$PORT/simple-mcp")
+[ "$CODE" = 401 ] && [ "$(hk_state)" = "HK=fresh0,dead1" ] || { echo "FAIL an unauthenticated request ($CODE) touched the housekeeping: $(hk_state)"; exit 1; }
+echo "ok   an unauthenticated request does not start the daily housekeeping"
+CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+    -H "Authorization: Bearer $KEY" --data "$PING" "http://127.0.0.1:$PORT/simple-mcp")
+[ "$CODE" = 200 ] && [ "$(hk_state)" = "HK=fresh1,dead0" ] || { echo "FAIL an agent's request ($CODE) did not clean up: $(hk_state)"; exit 1; }
+echo "ok   an agent's request runs the overdue daily housekeeping after its response (no WP-Cron)"
+
+# The daily housekeeping, its claim and its paths (rolled back), and the settings page in tabs (writes the option, restores it)
+$WPCLI --path="$WP_DIR" eval-file "$PLUGIN/tests/integration/housekeeping.php" | grep -v '^Deprecated'
 $WPCLI --path="$WP_DIR" eval-file "$PLUGIN/tests/integration/admin-tabs.php" | grep -v '^Deprecated'
 
 touch "$LOGS/php-errors.log"

@@ -10,6 +10,13 @@ class Simple_MCP {
     const VERSION_OPTION   = 'simple_mcp_version';      // для міграцій між версіями
     const USER_KEY_META    = 'simple_mcp_key_hash';     // SHA-256 персонального ключа (user meta)
     const USER_KEY_CREATED = 'simple_mcp_key_created';  // timestamp генерації ключа (user meta)
+    const PRUNED_OPTION    = 'simple_mcp_pruned_at';    // unix-час останнього щоденного прибирання (повз кеш опцій)
+
+    /**
+     * Прибирання не частіше, ніж раз на 23 години: трохи менше доби, щоб щоденна подія WP-Cron, яка
+     * спрацьовує із запізненням на секунди-хвилини, не пропускала через це кожен другий день.
+     */
+    const PRUNE_EVERY = 82800;
 
     /**
      * Версія, з якої інструменти інших плагінів і теми (група abilities) з'явились для вже наявних сайтів.
@@ -168,13 +175,11 @@ class Simple_MCP {
         // Власний ендпоінт ловимо на найранішому етапі парсингу запиту —
         // ДО того, як спрацює REST API та його гейт «REST off для анонімів».
         add_filter('do_parse_request', ['Simple_MCP_Endpoint', 'maybe_handle'], 0, 2);
-        // Щоденне чищення. accepted_args = 0: do_action() без аргументів передає '' першим аргументом,
-        // а prune('') упав би з TypeError на арифметиці ('' * DAY_IN_SECONDS).
-        add_action('simple_mcp_prune', ['Simple_MCP_Audit', 'prune'], 10, 0);             // ретенція audit-логу
-        if (method_exists('Simple_MCP_Tools', 'gc_uploads')) {
-            add_action('simple_mcp_prune', ['Simple_MCP_Tools', 'gc_uploads'], 10, 0);   // покинуті частинкові завантаження
-        }
-        add_action('simple_mcp_prune', ['Simple_MCP_OAuth', 'purge'], 10, 0);            // прострочені коди й токени OAuth
+        // Щоденне прибирання (housekeeping): подія WP-Cron — лише один зі шляхів, бо на багатьох сайтах
+        // WP-Cron вимкнено (DISABLE_WP_CRON без системного cron). Інші — запит агента після відповіді
+        // (Simple_MCP_Endpoint::after_response) і екран налаштувань. accepted_args = 0: do_action() без
+        // аргументів передає '' першим аргументом.
+        add_action('simple_mcp_prune', [__CLASS__, 'housekeeping'], 10, 0);
         add_action('deleted_user', ['Simple_MCP_OAuth', 'forget_user'], 10, 1);          // OAuth-підключення видаленого користувача
         // Подія могла зникнути (чищення cron, міграція, оновлення без реактивації) — відновлюємо.
         if (!wp_installing() && !wp_next_scheduled('simple_mcp_prune')) {
@@ -258,6 +263,63 @@ class Simple_MCP {
         } finally {
             if ($got !== null) $wpdb->query($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock));
         }
+    }
+
+    // ── Щоденне прибирання ────────────────────────────────────────────────
+
+    /**
+     * Щоденне прибирання, якщо воно на часі й цей запит забрав його собі (claim_housekeeping): з події
+     * WP-Cron simple_mcp_prune, після відповіді агенту й з екрана налаштувань. Усі шляхи ділять одну
+     * позначку часу, тож прибирання йде не частіше, ніж раз на PRUNE_EVERY. Повертає, чи виконувалось.
+     */
+    static function housekeeping() {
+        if (!self::claim_housekeeping()) return false;
+        self::run_housekeeping();
+        return true;
+    }
+
+    /** Саме прибирання: ретенція журналу й прострочені лічильники, покинуті частинкові завантаження, коди й токени OAuth */
+    static function run_housekeeping() {
+        Simple_MCP_Audit::prune();
+        Simple_MCP_Tools::gc_uploads();
+        Simple_MCP_OAuth::purge();
+    }
+
+    /**
+     * Атомарно забрати прибирання собі, якщо остання позначка старша за PRUNE_EVERY (або з майбутнього —
+     * зсув годинника не має блокувати прибирання назавжди). UPDATE … WHERE option_value = <прочитане>
+     * пройде лише в одного з паралельних запитів; першого разу, поки позначки немає, — INSERT IGNORE.
+     * Опцію читаємо й пишемо напряму, повз get_option: застарілий object cache не має значення.
+     */
+    static function claim_housekeeping() {
+        global $wpdb;
+        $now  = time();
+        $last = self::last_housekeeping(true);
+        if ($last === null) {
+            if ($wpdb->last_error !== '') return false;
+            $n = $wpdb->query($wpdb->prepare(
+                "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+                self::PRUNED_OPTION, (string) $now
+            ));
+            return (int) $n === 1;
+        }
+        if ((int) $last > $now - self::PRUNE_EVERY && (int) $last <= $now) return false;
+        $n = $wpdb->query($wpdb->prepare(
+            "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+            (string) $now, self::PRUNED_OPTION, $last
+        ));
+        return (int) $n === 1;
+    }
+
+    /**
+     * Коли востаннє пройшло прибирання: unix-час, 0 — ще ніколи. $raw — сирий рядок з БД або null,
+     * якщо позначки немає (для claim_housekeeping).
+     */
+    static function last_housekeeping($raw = false) {
+        global $wpdb;
+        $v = $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", self::PRUNED_OPTION));
+        if ($raw) return $v === null ? null : (string) $v;
+        return max(0, (int) $v);
     }
 
     static function activate() {
