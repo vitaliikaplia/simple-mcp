@@ -53,6 +53,26 @@ class Simple_MCP_Tools_Blocks {
 
     const SPEC = ['type' => 'object', 'description' => '{blockName, data?: {field: value}, attrs?: {anchor, className, align, ...}, innerBlocks?: [spec, ...], html?: inner HTML (non-ACF blocks), mode?: preview|edit|auto (ACF blocks)}'];
 
+    /**
+     * Тема чи плагін має власні блокові інструменти (WordPress Abilities з валідацією, живими змінами в
+     * редакторі тощо) і просить сховати вбудовані: фільтр simple_mcp_hide_builtin_blocks (false типово).
+     * Тоді й попередження editor_lock_warning не додаємо — така тема сама програє зміни у відкритому редакторі.
+     */
+    static function theme_owns_blocks() {
+        return (bool) apply_filters('simple_mcp_hide_builtin_blocks', false);
+    }
+
+    /**
+     * Чи сховано вбудовані block_* для поточного користувача: тема їх заступає (theme_owns_blocks), а користувач
+     * бачить інструменти плагінів і тем (група abilities, Abilities API є) — інакше блоки зникли б зовсім.
+     * Як Simple_MCP_Tools_Wploc::builtin_hidden для перекладів.
+     */
+    static function builtin_hidden() {
+        return class_exists('Simple_MCP_Auth') && class_exists('Simple_MCP_Tools_Abilities')
+            && Simple_MCP_Auth::perm('abilities') && Simple_MCP_Tools_Abilities::available()
+            && self::theme_owns_blocks();
+    }
+
     static function annotations($read_only, $destructive, $idempotent) {
         return ['readOnlyHint' => $read_only, 'destructiveHint' => $destructive, 'idempotentHint' => $idempotent, 'openWorldHint' => false];
     }
@@ -320,9 +340,10 @@ class Simple_MCP_Tools_Blocks {
     /**
      * Shared write pipeline: writable_post → with_post_lock → fresh re-read INSIDE the lock →
      * if_match → $op(&$blocks, $post, $dry) mutates the parsed tree (throws on invalid input,
-     * leaving the post untouched) → one save_post_content. Returns the MCP result.
+     * leaving the post untouched) → simple_mcp_pre_write (only when something would be saved) →
+     * one save_post_content. $tool — the MCP tool name for that filter. Returns the MCP result.
      */
-    static function run_write($args, callable $op) {
+    static function run_write($args, callable $op, $tool = 'block_update') {
         $post = Simple_MCP_Tools::writable_post($args['post_id'] ?? 0, true); // trash is refused below with a block-specific message
         if (is_array($post)) return $post;
         $post_id = (int) $post->ID;
@@ -335,7 +356,7 @@ class Simple_MCP_Tools_Blocks {
             return self::err('post #' . $post_id . ' is in the trash: restore it first (update_post with a non-trash status), then edit its blocks');
         }
         $dry = !empty($args['dry_run']);
-        return Simple_MCP_Tools::with_post_lock($post_id, function () use ($post_id, $args, $op, $dry) {
+        return Simple_MCP_Tools::with_post_lock($post_id, function () use ($post_id, $args, $op, $dry, $tool) {
             clean_post_cache($post_id);
             $post = get_post($post_id);
             if (!$post) return self::err('post #' . $post_id . ' not found');
@@ -368,6 +389,8 @@ class Simple_MCP_Tools_Blocks {
                 $out['content_etag'] = Simple_MCP_Tools::content_etag($post_id);
                 return self::ok($out);
             }
+            $veto = Simple_MCP_Tools::pre_write($post_id, $tool, $args);
+            if ($veto) return $veto;
             $verified = Simple_MCP_Tools::save_post_content($post_id, $content);
             if (is_wp_error($verified)) return self::err('save failed: ' . $verified->get_error_message());
             $out['content_verified'] = $verified;
@@ -391,6 +414,7 @@ class Simple_MCP_Tools_Blocks {
      * writes it back, so warn — the MCP lock only serializes MCP calls.
      */
     static function edit_lock_warning($post_id) {
+        if (self::theme_owns_blocks()) return null; // тема сама програє зміни у відкритому редакторі
         $lock = get_post_meta($post_id, '_edit_lock', true);
         if (!is_string($lock) || strpos($lock, ':') === false) return null;
         list($time, $user) = array_map('intval', explode(':', $lock, 2));
@@ -422,25 +446,25 @@ class Simple_MCP_Tools_Blocks {
     static function block_update($args) {
         return self::run_write($args, function (array &$blocks, $post, $dry) use ($args) {
             return self::op_update($blocks, $args, $dry);
-        });
+        }, 'block_update');
     }
 
     static function block_insert($args) {
         return self::run_write($args, function (array &$blocks, $post, $dry) use ($args) {
             return self::op_insert($blocks, $args, $dry);
-        });
+        }, 'block_insert');
     }
 
     static function block_move($args) {
         return self::run_write($args, function (array &$blocks, $post, $dry) use ($args) {
             return self::op_move($blocks, $args, $dry);
-        });
+        }, 'block_move');
     }
 
     static function block_remove($args) {
         return self::run_write($args, function (array &$blocks, $post, $dry) use ($args) {
             return self::op_remove($blocks, $args, $dry);
-        });
+        }, 'block_remove');
     }
 
     static function block_replace($args) {
@@ -470,7 +494,7 @@ class Simple_MCP_Tools_Blocks {
             if ($defaults) $out['defaults_applied'] = $defaults;
             if ($dry) $out['outline'] = self::outline($blocks);
             return $out;
-        });
+        }, 'block_replace');
     }
 
     static function block_batch($args) {
@@ -513,7 +537,7 @@ class Simple_MCP_Tools_Blocks {
             $out = ['ops' => $results];
             if ($dry) $out['outline'] = self::outline($blocks);
             return $out;
-        });
+        }, 'block_batch');
     }
 
     // ── OPERATIONS (shared by the single tools and block_batch; throw on invalid input) ──

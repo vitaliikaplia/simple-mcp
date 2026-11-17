@@ -642,6 +642,8 @@ class Simple_MCP_Tools_Posts {
                 $rev = wp_get_post_revision($rev_id);
                 if (!$rev || (int) $rev->post_parent !== $pid) return self::err('revision #' . $rev_id . ' is not a revision of post #' . $pid . ' (see revision_list)');
                 $expected = (string) $rev->post_content;
+                $veto = Simple_MCP_Tools::pre_write($pid, 'revision_restore', $args); // a theme/plugin may refuse (simple_mcp_pre_write)
+                if ($veto) return $veto;
                 // rollback point for the current state (a no-op revision when nothing changed since the last one)
                 if (wp_revisions_enabled($post)) wp_save_post_revision($pid);
                 else Simple_MCP_Tools::add_backup($pid, $post->post_content);
@@ -666,6 +668,8 @@ class Simple_MCP_Tools_Posts {
                     $warnings[] = 'restored a legacy backup: check the rendered page (render_post) — its \\uXXXX escapes may have been damaged';
                 }
                 $expected = (string) $bk['content'];
+                $veto = Simple_MCP_Tools::pre_write($pid, 'revision_restore', $args);
+                if ($veto) return $veto;
                 $v = Simple_MCP_Tools::save_post_content($pid, $expected);
                 if (is_wp_error($v)) return self::err('restore failed: ' . $v->get_error_message());
                 $verified = (bool) $v;

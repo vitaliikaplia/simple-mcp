@@ -152,3 +152,47 @@ smcp_test('abilities: on an upgraded site the row stays off until the administra
     smcp_assert_true($saved[1]['abilities'], 'once the administrator turns it on, it is on');
     smcp_assert_true(smcp_with_options([], function () { return Simple_MCP::role_perms_raw('administrator')['abilities']; }), 'a new install: on for administrators');
 });
+
+smcp_test('abilities: images in a result (_mcp_images) go to the client as MCP images, and the key leaves the JSON', function () {
+    $png  = base64_encode("\x89PNG\r\n\x1a\n" . str_repeat("\0", 24));
+    $data = ['ok' => true, 'url' => 'https://example.test/shot.png'];
+    $res  = Simple_MCP_Tools_Abilities::result($data + ['_mcp_images' => [['mimeType' => 'image/png', 'data' => $png]]]);
+    smcp_assert_false($res['isError']);
+    smcp_assert_same(2, count($res['content']), 'the JSON text and one image');
+    smcp_assert_same($data, json_decode($res['content'][0]['text'], true), '_mcp_images is not in the JSON text');
+    smcp_assert_same($data, $res['structuredContent'], '… nor in structuredContent');
+    smcp_assert_same(['type' => 'image', 'data' => $png, 'mimeType' => 'image/png'], $res['content'][1]);
+    smcp_assert_same(Simple_MCP_Tools::ok($data), Simple_MCP_Tools_Abilities::result($data), 'a result without the key is the usual one');
+    smcp_assert_same(Simple_MCP_Tools::ok('text'), Simple_MCP_Tools_Abilities::result('text'), 'so is a non-array result');
+    $only = Simple_MCP_Tools_Abilities::result(['_mcp_images' => [['mimeType' => 'image/png', 'data' => $png]]]);
+    smcp_assert_same('[]', $only['content'][0]['text'], 'a result of images only: empty JSON, then the image');
+    smcp_assert_same('image', $only['content'][1]['type']);
+});
+
+smcp_test('abilities: up to 3 images of up to 1.5 MB as PNG, JPEG, GIF or WebP; anything else is dropped with a note', function () {
+    $img = function ($mime, $bytes = 32) { return ['mimeType' => $mime, 'data' => base64_encode(str_repeat("\1", $bytes))]; };
+    [$ok, $dropped] = Simple_MCP_Tools_Abilities::images([
+        $img('image/png'), $img('image/jpeg'), ['mimeType' => 'image/svg+xml', 'data' => base64_encode('<svg/>')],
+        $img('image/webp'), $img('image/gif'),
+    ]);
+    smcp_assert_same(['image/png', 'image/jpeg', 'image/webp'], array_column($ok, 'mimeType'), 'the first three acceptable ones');
+    smcp_assert_same(2, count($dropped), 'SVG and the fourth image');
+    smcp_assert_true(strpos($dropped[0], 'image 3') === 0 && strpos($dropped[0], 'image/svg+xml') !== false, 'the reason names the image and the type', $dropped);
+    smcp_assert_true(strpos($dropped[1], 'image 5') === 0 && strpos($dropped[1], 'only 3') !== false, 'over the limit', $dropped);
+
+    [$ok, $dropped] = Simple_MCP_Tools_Abilities::images([$img('image/png', Simple_MCP_Tools_Abilities::IMAGE_MAX_BYTES), $img('image/png', Simple_MCP_Tools_Abilities::IMAGE_MAX_BYTES + 1)]);
+    smcp_assert_same(1, count($ok), 'exactly 1.5 MB passes');
+    smcp_assert_true(strpos($dropped[0] ?? '', 'over 1.5 MB') !== false, 'one byte more is dropped', $dropped);
+
+    [$ok, $dropped] = Simple_MCP_Tools_Abilities::images([['data' => 'data:image/jpeg;base64,' . chunk_split(base64_encode('jpegbytes'), 4, "\n")]]);
+    smcp_assert_same([['mimeType' => 'image/jpeg', 'data' => base64_encode('jpegbytes')]], $ok, 'a data: URL gives the type; line breaks are ignored');
+    [$ok, $dropped] = Simple_MCP_Tools_Abilities::images(['mimeType' => 'image/png', 'data' => base64_encode('x')]);
+    smcp_assert_same(1, count($ok), 'one image without a list');
+    [$ok, $dropped] = Simple_MCP_Tools_Abilities::images([['mimeType' => 'image/png', 'data' => 'not base64!'], ['mimeType' => 'image/png'], 'junk']);
+    smcp_assert_same([], $ok);
+    smcp_assert_same(['image 1 (data is not base64)', 'image 2 (no base64 data)', 'image 3 (no base64 data)'], $dropped);
+    smcp_assert_same([[], []], Simple_MCP_Tools_Abilities::images([]), 'an empty list: nothing, no note');
+    $res = Simple_MCP_Tools_Abilities::result(['a' => 1, '_mcp_images' => 'nope']);
+    smcp_assert_same(['a' => 1], $res['structuredContent']);
+    smcp_assert_same('Not attached: _mcp_images is not a list of {mimeType, data}.', end($res['content'])['text'], 'a broken value: a note, no image');
+});

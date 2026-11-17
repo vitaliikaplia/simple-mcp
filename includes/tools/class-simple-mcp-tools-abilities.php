@@ -24,6 +24,14 @@
  * Коли wp-loc реєструє власні abilities (wp-loc/…), вбудовані wploc_* Simple MCP ховає (Simple_MCP_Tools::registry).
  * Abilities просторів імен із NAMESPACE_PERMS агент бачить лише з відповідним рядком матриці (wp-loc/… — ще й
  * «Мультимовність», як і вбудовані wploc_*, яких вони заступають).
+ *
+ * Картинки (2.7.7): результат-масив із ключем _mcp_images ([{mimeType, data (base64)}]) — картинки йдуть агенту
+ * як зображення MCP ({"type":"image"}), до IMAGES_MAX по IMAGE_MAX_BYTES, а з JSON-тексту й structuredContent ключ
+ * прибирається. Поки Simple MCP виконує ability, apply_filters('simple_mcp_inline_images', false) дає true — так
+ * ability знає, що клієнт отримає картинки, а не лише посилання.
+ * Інші точки розширення для тем із власними блоковими інструментами: simple_mcp_instructions
+ * (Simple_MCP_Endpoint::instructions), simple_mcp_pre_write (Simple_MCP_Tools::pre_write),
+ * simple_mcp_hide_builtin_blocks (Simple_MCP_Tools_Blocks::builtin_hidden).
  */
 if (!defined('ABSPATH')) exit;
 
@@ -220,8 +228,96 @@ class Simple_MCP_Tools_Abilities {
         if ($ability->check_permissions($input) !== true) {
             return Simple_MCP_Tools::err_cap($ability->get_name());
         }
-        $result = $ability->execute($input);
+        // Сигнал для ability на час виклику: картинки з її результату (IMAGES_KEY) клієнт отримає як зображення MCP
+        add_filter('simple_mcp_inline_images', [__CLASS__, 'inline_images_on'], 10, 0);
+        try {
+            $result = $ability->execute($input);
+        } finally {
+            remove_filter('simple_mcp_inline_images', [__CLASS__, 'inline_images_on'], 10);
+        }
         if (is_wp_error($result)) return Simple_MCP_Tools::err($result->get_error_message());
-        return Simple_MCP_Tools::ok($result);
+        return self::result($result);
+    }
+
+    /** Значення фільтра simple_mcp_inline_images, поки Simple MCP виконує ability */
+    static function inline_images_on() {
+        return true;
+    }
+
+    // ── Картинки з результату ability ─────────────────────────────────────
+
+    /** Ключ результату ability зі списком картинок [{mimeType, data (base64)}] */
+    const IMAGES_KEY = '_mcp_images';
+    /** Скільки картинок додаємо до відповіді, решта відкидається з приміткою */
+    const IMAGES_MAX = 3;
+    /** Найбільший розмір однієї картинки (декодованої), байтів */
+    const IMAGE_MAX_BYTES = 1572864;
+    /** Формати зображень, які приймають клієнти MCP */
+    const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+
+    /**
+     * Результат ability → результат MCP. Масив із ключем IMAGES_KEY: ключ прибираємо з JSON-тексту й
+     * structuredContent, а картинки додаємо в content як {"type":"image","data":…,"mimeType":…}; що не пройшло
+     * (формат, base64, розмір, понад IMAGES_MAX) — текстовою приміткою наприкінці.
+     */
+    static function result($result) {
+        if (!is_array($result) || !array_key_exists(self::IMAGES_KEY, $result)) return Simple_MCP_Tools::ok($result);
+        $raw = $result[self::IMAGES_KEY];
+        unset($result[self::IMAGES_KEY]);
+        [$images, $dropped] = self::images($raw);
+        $res = Simple_MCP_Tools::ok($result);
+        foreach ($images as $img) {
+            $res['content'][] = ['type' => 'image', 'data' => $img['data'], 'mimeType' => $img['mimeType']];
+        }
+        if ($dropped) {
+            $res['content'][] = ['type' => 'text', 'text' => 'Not attached: ' . implode('; ', $dropped) . '.'];
+        }
+        return $res;
+    }
+
+    /**
+     * Картинки з IMAGES_KEY: [[{mimeType, data}…], [причини відкинутих]]. data — base64 (пробіли й переноси
+     * ігноруються) або data:-URL; mimeType — з IMAGE_TYPES (з data:-URL, якщо не задано окремо). Чисте, без WordPress.
+     */
+    static function images($raw) {
+        if ($raw === null || $raw === []) return [[], []];
+        if (!is_array($raw)) return [[], [self::IMAGES_KEY . ' is not a list of {mimeType, data}']];
+        if (!array_is_list($raw)) $raw = [$raw]; // одна картинка без списку
+        $ok = [];
+        $dropped = [];
+        $mb = round(self::IMAGE_MAX_BYTES / 1048576, 1);
+        foreach ($raw as $i => $img) {
+            $n = 'image ' . ($i + 1);
+            if (count($ok) >= self::IMAGES_MAX) {
+                $dropped[] = $n . ' (only ' . self::IMAGES_MAX . ' images per result)';
+                continue;
+            }
+            if (!is_array($img) || !is_string($img['data'] ?? null)) {
+                $dropped[] = $n . ' (no base64 data)';
+                continue;
+            }
+            $mime = strtolower(trim((string) ($img['mimeType'] ?? $img['mime_type'] ?? '')));
+            $data = $img['data'];
+            if (preg_match('~^data:([a-z0-9.+/-]+);base64,~i', $data, $m)) {
+                if ($mime === '') $mime = strtolower($m[1]);
+                $data = substr($data, strlen($m[0]));
+            }
+            $data = (string) preg_replace('/\s+/', '', $data);
+            if (!in_array($mime, self::IMAGE_TYPES, true)) {
+                $dropped[] = $n . ' (mimeType "' . substr($mime, 0, 40) . '" is not one of ' . implode(', ', self::IMAGE_TYPES) . ')';
+                continue;
+            }
+            if ($data === '' || strlen($data) % 4 !== 0 || !preg_match('~^[A-Za-z0-9+/]+={0,2}$~', $data)) {
+                $dropped[] = $n . ' (data is not base64)';
+                continue;
+            }
+            $bytes = intdiv(strlen($data), 4) * 3 - (substr($data, -2) === '==' ? 2 : (substr($data, -1) === '=' ? 1 : 0));
+            if ($bytes > self::IMAGE_MAX_BYTES) {
+                $dropped[] = $n . ' (' . round($bytes / 1048576, 1) . ' MB, over ' . $mb . ' MB)';
+                continue;
+            }
+            $ok[] = ['mimeType' => $mime, 'data' => $data];
+        }
+        return [$ok, $dropped];
     }
 }

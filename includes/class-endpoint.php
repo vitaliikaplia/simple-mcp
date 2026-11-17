@@ -368,7 +368,8 @@ class Simple_MCP_Endpoint {
      */
     static function instructions() {
         $perms   = Simple_MCP_Auth::current_perms();
-        $blocks  = !empty($perms['blocks']);
+        // вбудовані block_* сховано на користь блокових інструментів теми — тоді й тексти їх не згадують
+        $blocks  = !empty($perms['blocks']) && !Simple_MCP_Tools_Blocks::builtin_hidden();
         $ml      = !empty($perms['wploc']) ? Simple_MCP::multilingual_system() : null;
         $content = !empty($perms['content']);
         $cli     = !empty($perms['wp_cli']);
@@ -404,7 +405,13 @@ class Simple_MCP_Endpoint {
             $r[] = 'On an unfamiliar site call describe_site first (blocks, fields, options, post types, languages differ per site; cached 1 h, refresh:true after schema changes).';
         }
         $r[] = 'Typed post_content writes are byte-verified (require content_verified:true when returned) and keep a revision or backup (revision_list / revision_restore). After edits call cache_flush (post_id; a whole-site flush needs manage_options) when a page cache is active' . ($cli ? ' — not wp_cli "cache flush" (object cache only)' : '') . '.';
-        return implode(' ', $r);
+        // Тема чи плагін додає свої правила (напр. «спершу builder-describe-blocks»): масив речень і дозволи користувача
+        $r = apply_filters('simple_mcp_instructions', $r, $perms);
+        $out = [];
+        foreach ((array) $r as $line) {
+            if (is_scalar($line) && trim((string) $line) !== '') $out[] = trim((string) $line);
+        }
+        return implode(' ', $out);
     }
 
     static function result($id, $result) {

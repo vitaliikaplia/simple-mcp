@@ -5,7 +5,8 @@
 # administrator with user ID 1. Any warning, notice, deprecation or fatal error raised in the plugin's own files
 # (in the web requests or in the wp_cli subprocesses) fails the run. After the key smoke test, tests/e2e/oauth.php walks
 # the OAuth way in (switched on for it, then off again), and tests/e2e/abilities.php calls other plugins' tools
-# (WordPress Abilities from tests/e2e/fixtures, installed as a mu-plugin for the run only), an agent's request runs the overdue daily
+# (WordPress Abilities from tests/e2e/fixtures, installed as a mu-plugin for the run only), tests/e2e/extensibility.php checks
+# the hooks for a theme with its own block tools (instructions, pre-write veto, hidden block_*, images), an agent's request runs the overdue daily
 # housekeeping without WP-Cron (and not when it is switched off), tests/integration/housekeeping.php checks its claim, settings
 # and paths, and tests/integration/admin-tabs.php
 # checks the tabs of the settings page.
@@ -31,6 +32,8 @@ DEBUG_LOG="$WP_DIR/wp-content/debug.log"
 : > "$DEBUG_LOG"
 
 VERSION=$("$PHP" -r 'preg_match("/^\s*\*\s*Version:\s*(\S+)/m", file_get_contents($argv[1]), $m); echo $m[1];' "$PLUGIN/simple-mcp.php")
+# the fixture's theme hooks start switched off (a run that failed half-way may have left them on)
+$WPCLI --path="$WP_DIR" eval 'delete_option("smcp_test_ext"); echo "EXT=off\n";' | grep -q 'EXT=off' || { echo "could not reset smcp_test_ext"; exit 1; }
 # a fresh key for the administrator (grep: WP-CLI may print its own deprecation notices around the output)
 KEY=$($WPCLI --path="$WP_DIR" eval 'echo "KEY=", Simple_MCP_Auth::generate_key_for(1, "CI smoke"), "\n";' | grep -o 'KEY=smcp-1-[A-Za-z0-9]*' | cut -d= -f2)
 [ -n "$KEY" ] || { echo "could not generate a key"; exit 1; }
@@ -46,6 +49,24 @@ done
 
 "$PHP" "$HERE/smoke.php" "http://127.0.0.1:$PORT/simple-mcp" "$KEY" "$VERSION"
 "$PHP" "$HERE/abilities.php" "http://127.0.0.1:$PORT/simple-mcp" "$KEY"
+# A theme with its own block tools (2.7.7): the fixture's hooks, switched on per phase by the option smcp_test_ext
+ext() { $WPCLI --path="$WP_DIR" eval "update_option('smcp_test_ext', $1); echo 'EXT=ok';" | grep -q 'EXT=ok' || { echo "could not set smcp_test_ext"; exit 1; }; }
+ext "['instructions', 'hide_blocks', 'pre_write']"
+"$PHP" "$HERE/extensibility.php" "http://127.0.0.1:$PORT/simple-mcp" "$KEY" theme
+ext "['pre_write']"
+"$PHP" "$HERE/extensibility.php" "http://127.0.0.1:$PORT/simple-mcp" "$KEY" blocks
+$WPCLI --path="$WP_DIR" eval '
+    delete_option("smcp_test_ext");
+    $id = wp_insert_post(["post_title" => "SMCP lock", "post_status" => "draft"]);
+    update_post_meta($id, "_edit_lock", time() . ":1");
+    $shown = Simple_MCP_Tools_Blocks::edit_lock_warning($id) !== null;
+    add_filter("simple_mcp_hide_builtin_blocks", "__return_true");
+    $dropped = Simple_MCP_Tools_Blocks::edit_lock_warning($id) === null;
+    foreach (get_posts(["post_type" => "post", "post_status" => "any", "posts_per_page" => -1, "s" => "SMCP"]) as $p) {
+        if (strpos($p->post_title, "SMCP ") === 0) wp_delete_post($p->ID, true);
+    }
+    echo "LOCK=", (int) $shown, (int) $dropped, "\n";' | grep -q 'LOCK=11' || { echo "FAIL editor_lock_warning is not shown for another user's open editor, or not dropped when the theme owns the blocks"; exit 1; }
+echo "ok   editor_lock_warning: shown for another user's open editor, dropped when the theme replays changes itself"
 # A site upgraded from before 2.7.1: the migration marks it, the row «Інструменти плагінів і теми» is off by default
 $WPCLI --path="$WP_DIR" eval '
     update_option("simple_mcp_version", "2.6.0");

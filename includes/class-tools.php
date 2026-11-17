@@ -37,6 +37,8 @@ class Simple_MCP_Tools {
             // wp-loc сам показує свої інструменти через Abilities API → вбудовані wploc_* не дублюємо
             // (лише коли користувач бачить інструменти плагінів — інакше мультимовність зникла б зовсім)
             if ($group === 'wploc' && Simple_MCP_Tools_Wploc::builtin_hidden()) continue;
+            // тема з власними блоковими інструментами (simple_mcp_hide_builtin_blocks) — вбудовані block_* не дублюємо
+            if ($group === 'blocks' && Simple_MCP_Tools_Blocks::builtin_hidden()) continue;
             if ($group === 'abilities' && !Simple_MCP_Tools_Abilities::available()) continue;
             if (class_exists($cls) && method_exists($cls, 'defs')) {
                 $reg = array_merge($reg, (array) $cls::defs());
@@ -653,6 +655,20 @@ class Simple_MCP_Tools {
     }
 
     /**
+     * Остання перевірка перед записом тіла поста вбудованим інструментом (update_post з content, block_*,
+     * revision_restore): фільтр simple_mcp_pre_write (null|WP_Error $verdict, int $post_id, string $tool,
+     * array $args). Тема чи плагін повертає WP_Error, щоб відмовити (напр. у відкритому редакторі незбережені
+     * правки). null — можна писати; інакше MCP-помилка з повідомленням WP_Error, і інструмент нічого не пише.
+     * Викликати під with_post_lock, після if_match і до першої зміни.
+     */
+    static function pre_write($post_id, $tool, array $args) {
+        $verdict = apply_filters('simple_mcp_pre_write', null, (int) $post_id, (string) $tool, $args);
+        if (!is_wp_error($verdict)) return null;
+        $msg = trim((string) $verdict->get_error_message());
+        return self::err($msg !== '' ? $msg : 'Запис у пост #' . (int) $post_id . ' відхилено (' . $verdict->get_error_code() . ').');
+    }
+
+    /**
      * Чи збереглось тіло так, як задумано: побайтово, або — оскільки ACF на content_save_pre
      * перекодовує атрибути блоків (напр. "\" → "\\") — те саме розібране дерево блоків
      * (строго: same_tree). kses-зміни дають різні значення, тож лишаються помітними.
@@ -945,6 +961,11 @@ class Simple_MCP_Tools {
         if ($want !== null && $want !== 'trash' && self::is_publish_status($want)
             && !self::is_publish_status($from) && !self::can_publish_type($post->post_type)) {
             return self::err_cap('publish_posts (' . $post->post_type . ')');
+        }
+        // Запис тіла тема чи плагін можуть відхилити (simple_mcp_pre_write) — до будь-якої зміни, і решти полів теж
+        if ($has_content) {
+            $veto = self::pre_write($id, 'update_post', $args);
+            if ($veto) return $veto;
         }
 
         // ── 3. Запис ──

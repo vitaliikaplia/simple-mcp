@@ -81,6 +81,26 @@ add_action('wp_abilities_api_init', function () {
         'meta'             => ['mcp' => ['public' => true]],
     ]);
 
+    // Images in the result (_mcp_images, 2.7.7): count small PNGs, then a 2 MB one when big is set; inline reports the
+    // simple_mcp_inline_images signal Simple MCP turns on while it runs the ability
+    wp_register_ability('smcp-test/image', $base + [
+        'label'            => 'Image',
+        'description'      => 'Returns PNG images to the client.',
+        'input_schema'     => [
+            'type'       => 'object',
+            'properties' => ['count' => ['type' => 'integer', 'minimum' => 0, 'maximum' => 6, 'default' => 1], 'big' => ['type' => 'boolean', 'default' => false]],
+            'default'    => [],
+        ],
+        'execute_callback' => function ($input = []) {
+            // a 1×1 PNG
+            $png    = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+            $images = array_fill(0, (int) ($input['count'] ?? 1), ['mimeType' => 'image/png', 'data' => $png]);
+            if (!empty($input['big'])) $images[] = ['mimeType' => 'image/png', 'data' => base64_encode(str_repeat("\0", 2 * 1048576))];
+            return ['inline' => (bool) apply_filters('simple_mcp_inline_images', false), 'count' => count($images), '_mcp_images' => $images];
+        },
+        'meta'             => ['mcp' => ['public' => true], 'annotations' => ['readonly' => true]],
+    ]);
+
     // Not for MCP: no flag, and public but opted out of MCP
     wp_register_ability('smcp-test/hidden', $base + [
         'label' => 'Hidden', 'description' => 'Not marked for MCP.', 'execute_callback' => '__return_true',
@@ -91,3 +111,21 @@ add_action('wp_abilities_api_init', function () {
         'meta'  => ['public' => true, 'mcp' => ['public' => false]],
     ]);
 });
+
+// ── A theme with its own block tools (2.7.7), switched on per phase by tests/e2e/run.sh: option smcp_test_ext lists
+// instructions, hide_blocks, pre_write ──
+function smcp_test_ext($what) {
+    return in_array($what, (array) get_option('smcp_test_ext', []), true);
+}
+add_filter('simple_mcp_instructions', function ($lines, $perms) {
+    if (smcp_test_ext('instructions')) $lines[] = 'SMCP-TEST: call smcp-test-site-name first' . (empty($perms['abilities']) ? '' : ' (abilities on)') . '.';
+    return $lines;
+}, 10, 2);
+add_filter('simple_mcp_hide_builtin_blocks', function ($hide) {
+    return smcp_test_ext('hide_blocks') ? true : $hide;
+});
+// Refuse body writes to posts titled "SMCP refuse…" (as a theme refuses while its editor has unsaved changes)
+add_filter('simple_mcp_pre_write', function ($verdict, $post_id, $tool, $args) {
+    if (!smcp_test_ext('pre_write') || strpos(get_the_title($post_id), 'SMCP refuse') !== 0) return $verdict;
+    return new WP_Error('smcp_test_busy', 'SMCP-TEST refused ' . $tool . ' on #' . $post_id . ' (args: ' . implode(',', array_keys($args)) . ')');
+}, 10, 4);
